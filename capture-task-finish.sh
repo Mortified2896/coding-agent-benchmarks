@@ -45,6 +45,7 @@ jq \
   --arg timestamp_end "$timestamp_end" \
   --arg session_finish_time "$timestamp_end" \
   --arg opencode_exit_code "$opencode_exit_code" \
+  --arg agent_exit_code "$opencode_exit_code" \
   --arg final_git_status "$git_status_after" \
   --arg final_git_diff_summary "$git_diff_summary" \
   --arg git_status_short_after_path "$status_after_path" \
@@ -55,6 +56,7 @@ jq \
     timestamp_end: $timestamp_end,
     session_finish_time: $session_finish_time,
     opencode_exit_code: $opencode_exit_code,
+    agent_exit_code: $agent_exit_code,
     final_git_status: $final_git_status,
     final_git_diff_summary: $final_git_diff_summary,
     git_status_short_after_path: $git_status_short_after_path,

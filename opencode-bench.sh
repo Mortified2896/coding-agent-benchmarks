@@ -18,6 +18,16 @@ if ! git -C "$target_repo" rev-parse --show-toplevel >/dev/null 2>&1; then
 fi
 
 repo_root="$(git -C "$target_repo" rev-parse --show-toplevel)"
+opencodebench_harness="${OPENCODEBENCH_HARNESS:-opencode}"
+opencodebench_harness_mode="${OPENCODEBENCH_HARNESS_MODE:-direct}"
+opencodebench_agent_command_label="${OPENCODEBENCH_AGENT_COMMAND_LABEL:-opencode-direct}"
+opencodebench_task_source="${OPENCODEBENCH_TASK_SOURCE:-cli}"
+
+if [[ "$opencodebench_harness" != "opencode" || "$opencodebench_harness_mode" != "direct" ]]; then
+  print -u2 "Error: unsupported OpenCodeBench harness: ${opencodebench_harness}/${opencodebench_harness_mode}"
+  print -u2 "Currently supported: opencode/direct."
+  exit 1
+fi
 
 opencode_bin="${OPENCODE_BIN:-}"
 if [[ -z "$opencode_bin" ]]; then
@@ -41,7 +51,7 @@ case "$opencode_bin" in
     ;;
 esac
 
-task_dir=$(HARNESS=opencode LAUNCHER_USED=OpenCodeBench OPENCODE_EXECUTABLE_PATH="$opencode_bin" MODEL="${OPENCODE_MODEL:-unknown}" "$script_dir/capture-task-start.sh" "$repo_root")
+task_dir=$(HARNESS="$opencodebench_harness" HARNESS_MODE="$opencodebench_harness_mode" TASK_SOURCE="$opencodebench_task_source" AGENT_COMMAND_LABEL="$opencodebench_agent_command_label" LAUNCHER_USED=OpenCodeBench OPENCODE_EXECUTABLE_PATH="$opencode_bin" MODEL="${OPENCODE_MODEL:-unknown}" "$script_dir/capture-task-start.sh" "$repo_root")
 
 metadata_path="$task_dir/metadata.json"
 opencodebench_session_id="$(basename "$task_dir")"

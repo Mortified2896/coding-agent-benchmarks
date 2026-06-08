@@ -81,6 +81,9 @@ git_root=$(git -C "$repo" rev-parse --show-toplevel)
 timestamp_start=$(date -u +%Y-%m-%dT%H-%M-%SZ)
 session_start_time="$timestamp_start"
 harness="${HARNESS:-opencode}"
+harness_mode="${HARNESS_MODE:-${OPENCODEBENCH_HARNESS_MODE:-direct}}"
+task_source="${TASK_SOURCE:-${OPENCODEBENCH_TASK_SOURCE:-manual}}"
+agent_command_label="${AGENT_COMMAND_LABEL:-${OPENCODEBENCH_AGENT_COMMAND_LABEL:-${harness}-${harness_mode}}}"
 launcher_used="${LAUNCHER_USED:-}"
 opencode_executable_path="${OPENCODE_EXECUTABLE_PATH:-}"
 model="${MODEL:-${OPENCODE_MODEL:-unknown}}"
@@ -133,6 +136,9 @@ jq -n \
   --arg timestamp_start "$timestamp_start" \
   --arg session_start_time "$session_start_time" \
   --arg harness "$harness" \
+  --arg harness_mode "$harness_mode" \
+  --arg task_source "$task_source" \
+  --arg agent_command_label "$agent_command_label" \
   --arg launcher_used "$launcher_used" \
   --arg opencode_executable_path "$opencode_executable_path" \
   --arg model_id "$model" \
@@ -158,6 +164,9 @@ jq -n \
     timestamp_start: $timestamp_start,
     session_start_time: $session_start_time,
     harness: $harness,
+    harness_mode: $harness_mode,
+    task_source: $task_source,
+    agent_command_label: $agent_command_label,
     launcher_used: $launcher_used,
     opencode_executable_path: $opencode_executable_path,
     model_id: $model_id,

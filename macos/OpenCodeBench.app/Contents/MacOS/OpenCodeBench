@@ -8,7 +8,18 @@ fi
 
 default_repo="${OPENCODEBENCH_REPO:-${OPENCODEBENCH_DEFAULT_REPO:-$HOME}}"
 default_repo="${default_repo/#\~/$HOME}"
+opencodebench_harness="${OPENCODEBENCH_HARNESS:-opencode}"
+opencodebench_harness_mode="${OPENCODEBENCH_HARNESS_MODE:-direct}"
+opencodebench_agent_command_label="${OPENCODEBENCH_AGENT_COMMAND_LABEL:-opencode-direct}"
+opencodebench_task_source="${OPENCODEBENCH_TASK_SOURCE:-desktop_app}"
 wrapper="$HOME/.local/share/opencodebench/opencode-bench.sh"
+
+if [[ "$opencodebench_harness" != "opencode" || "$opencodebench_harness_mode" != "direct" ]]; then
+  message="Unsupported OpenCodeBench harness: ${opencodebench_harness}/${opencodebench_harness_mode}. Currently supported: opencode/direct."
+  print -u2 "Error: $message"
+  osascript -e 'display alert "OpenCodeBench" message "Unsupported OpenCodeBench harness. Currently supported: opencode/direct." as critical'
+  exit 1
+fi
 
 if [[ ! -x "$wrapper" ]]; then
   osascript -e 'display alert "OpenCodeBench" message "Benchmark wrapper not found or not executable at ~/.local/share/opencodebench/opencode-bench.sh. Reinstall OpenCodeBench.app." as critical'
@@ -21,7 +32,7 @@ if ! git -C "$default_repo" rev-parse --show-toplevel >/dev/null 2>&1; then
 fi
 
 repo_root="$(git -C "$default_repo" rev-parse --show-toplevel)"
-terminal_command="cd $(printf '%q' "$repo_root") && OPENCODEBENCH_REPO=$(printf '%q' "$repo_root") exec $(printf '%q' "$wrapper")"
+terminal_command="cd $(printf '%q' "$repo_root") && OPENCODEBENCH_REPO=$(printf '%q' "$repo_root") OPENCODEBENCH_HARNESS=$(printf '%q' "$opencodebench_harness") OPENCODEBENCH_HARNESS_MODE=$(printf '%q' "$opencodebench_harness_mode") OPENCODEBENCH_AGENT_COMMAND_LABEL=$(printf '%q' "$opencodebench_agent_command_label") OPENCODEBENCH_TASK_SOURCE=$(printf '%q' "$opencodebench_task_source") exec $(printf '%q' "$wrapper")"
 
 osascript <<OSA
 tell application "Terminal"

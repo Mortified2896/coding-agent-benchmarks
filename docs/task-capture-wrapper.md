@@ -4,7 +4,7 @@
 
 The task capture wrapper records enough local context to reconstruct normal OpenCode work as future benchmark cases.
 
-It captures the Git starting point before OpenCode runs, launches the real installed `opencode` CLI, then captures final status and diff after OpenCode exits.
+It captures the Git starting point before OpenCode runs, launches the real installed `opencode` CLI, then captures final status and diff after OpenCode exits. The Desktop app is the recommended launcher for tracked runs because it resolves the configured target repo and starts the wrapper from that repo's Git root.
 
 ## Configuration
 
@@ -24,13 +24,23 @@ Example:
 
 ```sh
 OPENCODEBENCH_DEFAULT_REPO="$HOME/GitHub/example-repo"
+OPENCODEBENCH_HARNESS=opencode
+OPENCODEBENCH_HARNESS_MODE=direct
+OPENCODEBENCH_AGENT_COMMAND_LABEL=opencode-direct
+OPENCODEBENCH_TASK_SOURCE=desktop_app
 ```
 
 Optional overrides:
 
 - `OPENCODEBENCH_REPO`: target repo for one invocation.
+- `OPENCODEBENCH_HARNESS`: harness name. Only `opencode` is currently supported.
+- `OPENCODEBENCH_HARNESS_MODE`: harness mode. Only `direct` is currently supported with OpenCode.
+- `OPENCODEBENCH_AGENT_COMMAND_LABEL`: stable command label for metadata, defaulting to `opencode-direct`.
+- `OPENCODEBENCH_TASK_SOURCE`: capture source such as `desktop_app`, `cli`, or `manual`.
 - `OPENCODEBENCH_LOG_ROOT`: optional log root. If unset, logs go under the detected OpenCodeBench project checkout's local ignored log directory. If no checkout can be detected from the script location, logs fall back to `${XDG_STATE_HOME:-$HOME/.local/state}/opencodebench/coding-agent-task-logs/`. If set inside a Git repository, the log path must be gitignored; OpenCodeBench refuses unsafe non-ignored Git log roots because logs may contain prompts, diffs, metadata, local paths, and filenames.
 - `OPENCODE_BIN`: specific real OpenCode binary. If unset, the wrapper uses `command -v opencode`.
+
+Future harness values such as `hermes/direct` are reserved for later wrappers and are not supported by the current OpenCode launcher.
 
 ## Captured Files
 
@@ -66,7 +76,17 @@ Finish capture writes:
 - `git-diff.patch`
 - `summary.md`
 
-`metadata.json` includes the task ID, timestamps, launcher, resolved OpenCode executable path, model, reasoning level, repo path, cwd, starting Git SHA, branch, starting status, dirty-state artifact paths, finish time, final status, final diff summary, and artifact paths.
+`metadata.json` includes the task ID, timestamps, launcher, generic harness metadata, resolved OpenCode executable path, model, reasoning level, repo path, cwd, starting Git SHA, branch, starting status, dirty-state artifact paths, finish time, final status, final diff summary, and artifact paths.
+
+Generic harness fields include:
+
+- `harness`
+- `harness_mode`
+- `task_source`
+- `agent_command_label`
+- `agent_exit_code`
+
+Existing OpenCode-specific fields are preserved for compatibility. For OpenCode direct runs, `agent_exit_code` equals `opencode_exit_code`.
 
 ## OpenTelemetry Metadata
 
@@ -101,6 +121,8 @@ Then launch `OpenCodeBench` from Spotlight, Raycast, Alfred, Finder, or:
 ```sh
 open ~/Applications/OpenCodeBench.app
 ```
+
+The app currently supports only `OPENCODEBENCH_HARNESS=opencode` with `OPENCODEBENCH_HARNESS_MODE=direct`. Unsupported harness settings exit non-zero with a clear error.
 
 ## Inspect A Captured Log
 

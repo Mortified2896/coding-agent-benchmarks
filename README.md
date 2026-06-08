@@ -2,7 +2,7 @@
 
 Lightweight local capture tooling for OpenCodeBench sessions.
 
-OpenCodeBench launches the real installed `opencode` CLI, records pre-run Git metadata, injects `opencodebench.*` OpenTelemetry resource attributes, waits for OpenCode to exit, and then records the final Git status and diff.
+OpenCodeBench launches the real installed `opencode` CLI from a selected Git repository root, records pre-run Git metadata, injects `opencodebench.*` OpenTelemetry resource attributes, waits for OpenCode to exit, and then records the final Git status and diff.
 
 It does not modify, alias, or bundle OpenCode.
 
@@ -14,7 +14,7 @@ mkdir -p ~/.config/opencodebench
 cp config/config.env.example ~/.config/opencodebench/config.env
 ```
 
-Edit `~/.config/opencodebench/config.env` if you want the macOS launcher to open a default repository.
+Edit `~/.config/opencodebench/config.env` if you want the macOS launcher to open a default repository. The Desktop app is the recommended launcher for tracked runs because it starts a fresh captured session from the configured repository root.
 
 ## Run
 
@@ -30,7 +30,18 @@ Or set the repo explicitly:
 OPENCODEBENCH_REPO="/path/to/repo" ./opencode-bench.sh
 ```
 
-The macOS app launcher reads `~/.config/opencodebench/config.env`, changes into `OPENCODEBENCH_DEFAULT_REPO`, and runs the installed wrapper from `~/.local/share/opencodebench`.
+The macOS app launcher reads `~/.config/opencodebench/config.env`, resolves `OPENCODEBENCH_REPO` or `OPENCODEBENCH_DEFAULT_REPO` to its Git root, changes into that root, and runs the installed wrapper from `~/.local/share/opencodebench`.
+
+The currently supported harness is OpenCode direct:
+
+```sh
+OPENCODEBENCH_HARNESS=opencode
+OPENCODEBENCH_HARNESS_MODE=direct
+OPENCODEBENCH_AGENT_COMMAND_LABEL=opencode-direct
+OPENCODEBENCH_TASK_SOURCE=desktop_app
+```
+
+Other harness values are reserved for future wrappers and fail clearly today.
 
 ## Logs
 
@@ -72,6 +83,16 @@ Finish capture writes:
 - `git-diff-numstat.txt`
 - `git-diff.patch`
 - `summary.md`
+
+`metadata.json` preserves the original OpenCode fields and also records generic harness metadata:
+
+- `harness`
+- `harness_mode`
+- `task_source`
+- `agent_command_label`
+- `agent_exit_code`
+
+For OpenCode runs, `agent_exit_code` matches the existing `opencode_exit_code` field.
 
 ## Telemetry Metadata
 
