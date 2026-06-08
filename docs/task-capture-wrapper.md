@@ -29,7 +29,7 @@ OPENCODEBENCH_DEFAULT_REPO="/Users/Jo/GitHub/HomeLab"
 Optional overrides:
 
 - `OPENCODEBENCH_REPO`: target repo for one invocation.
-- `OPENCODEBENCH_LOG_ROOT`: log root. If unset, logs go under the target repo.
+- `OPENCODEBENCH_LOG_ROOT`: optional log root. If unset, logs go under the detected OpenCodeBench project checkout's local ignored log directory. If no checkout can be detected from the script location, logs fall back to `${XDG_STATE_HOME:-$HOME/.local/state}/opencodebench/coding-agent-task-logs/`. If set inside a Git repository, the log path must be gitignored; OpenCodeBench refuses unsafe non-ignored Git log roots because logs may contain prompts, diffs, metadata, local paths, and filenames.
 - `OPENCODE_BIN`: specific real OpenCode binary. If unset, the wrapper uses `command -v opencode`.
 
 ## Captured Files
@@ -37,7 +37,14 @@ Optional overrides:
 Task logs are written by default to:
 
 ```text
-<target repo>/.local/coding-agent-task-logs/YYYY/MM/<task_id>/
+<OpenCodeBench root>/.local/coding-agent-task-logs/YYYY/MM/<task_id>/
+```
+
+If the scripts are run from an installed or copied location where no
+OpenCodeBench checkout can be detected, logs fall back to:
+
+```text
+${XDG_STATE_HOME:-$HOME/.local/state}/opencodebench/coding-agent-task-logs/YYYY/MM/<task_id>/
 ```
 
 Start capture writes:
@@ -98,7 +105,7 @@ open ~/Applications/OpenCodeBench.app
 ## Inspect A Captured Log
 
 ```sh
-task_dir="<target repo>/.local/coding-agent-task-logs/YYYY/MM/<task_id>"
+task_dir="<OpenCodeBench root>/.local/coding-agent-task-logs/YYYY/MM/<task_id>"
 jq . "$task_dir/metadata.json"
 cat "$task_dir/task.md"
 cat "$task_dir/git-status-before.txt"

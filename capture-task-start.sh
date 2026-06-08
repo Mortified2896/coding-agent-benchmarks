@@ -6,8 +6,76 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
+validate_log_root_override() {
+  local log_root="$1"
+  local intended_log_path="$2"
+  local check_dir="$log_root"
+  local log_git_root
+  local relative_log_path
+
+  while [[ ! -e "$check_dir" && "$check_dir" != "/" ]]; do
+    check_dir="${check_dir:h}"
+  done
+
+  if ! log_git_root=$(git -C "$check_dir" rev-parse --show-toplevel 2>/dev/null); then
+    return 0
+  fi
+
+  relative_log_path="${intended_log_path#$log_git_root/}"
+  if git -C "$log_git_root" check-ignore -q -- "$relative_log_path"; then
+    return 0
+  fi
+
+  print -u2 "Error: unsafe OPENCODEBENCH_LOG_ROOT: $log_root"
+  print -u2 "Benchmark logs may contain prompts, diffs, metadata, local paths, and filenames."
+  print -u2 "The resolved log path is inside a Git repository but is not ignored:"
+  print -u2 "  $intended_log_path"
+  print -u2 "Add an ignore rule for this log root or choose a path outside any Git repository."
+  return 1
+}
+
+looks_like_opencodebench_root() {
+  local candidate="$1"
+
+  [[ -f "$candidate/capture-task-start.sh" ]] &&
+    [[ -f "$candidate/capture-task-finish.sh" ]] &&
+    [[ -f "$candidate/opencode-bench.sh" ]] &&
+    [[ -f "$candidate/config/config.env.example" ]] &&
+    [[ -f "$candidate/README.md" ]]
+}
+
+detect_opencodebench_root() {
+  local search_dir="$1"
+
+  while [[ "$search_dir" != "/" ]]; do
+    if looks_like_opencodebench_root "$search_dir"; then
+      print -r -- "$search_dir"
+      return 0
+    fi
+    search_dir="${search_dir:h}"
+  done
+
+  return 1
+}
+
+default_log_root() {
+  local script_dir="$1"
+  local project_root
+  local state_home
+
+  if project_root="$(detect_opencodebench_root "$script_dir")"; then
+    print -r -- "$project_root/.local/coding-agent-task-logs"
+    return 0
+  fi
+
+  state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+  state_home="${state_home/#\~/$HOME}"
+  print -r -- "$state_home/opencodebench/coding-agent-task-logs"
+}
+
 repo="${1:-$PWD}"
 prompt_file="${2:-}"
+script_dir="${0:A:h}"
 
 git_root=$(git -C "$repo" rev-parse --show-toplevel)
 timestamp_start=$(date -u +%Y-%m-%dT%H-%M-%SZ)
@@ -30,9 +98,12 @@ month=$(date -u +%m)
 if [[ -n "${OPENCODEBENCH_LOG_ROOT:-}" ]]; then
   log_root="${OPENCODEBENCH_LOG_ROOT:A}"
 else
-  log_root="$git_root/.local/coding-agent-task-logs"
+  log_root="$(default_log_root "$script_dir")"
 fi
 task_dir="$log_root/$year/$month/$task_id"
+if [[ -n "${OPENCODEBENCH_LOG_ROOT:-}" ]]; then
+  validate_log_root_override "$log_root" "$task_dir/metadata.json"
+fi
 opencodebench_task_dir="$task_dir"
 opencodebench_git_commit_before="$git_head_before"
 

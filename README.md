@@ -34,13 +34,25 @@ The macOS app launcher reads `~/.config/opencodebench/config.env`, changes into 
 
 ## Logs
 
-By default task logs are written inside the target repo:
+By default task logs are written under the detected OpenCodeBench project
+checkout's local ignored log directory:
 
 ```text
-<target repo>/.local/coding-agent-task-logs/YYYY/MM/<task_id>/
+<OpenCodeBench root>/.local/coding-agent-task-logs/YYYY/MM/<task_id>/
+```
+
+If the scripts are run from an installed or copied location where no
+OpenCodeBench checkout can be detected, logs fall back to the user state
+directory:
+
+```text
+${XDG_STATE_HOME:-$HOME/.local/state}/opencodebench/coding-agent-task-logs/YYYY/MM/<task_id>/
 ```
 
 Set `OPENCODEBENCH_LOG_ROOT` only if you explicitly want logs somewhere else.
+If that path is inside a Git repository, it must be gitignored. OpenCodeBench
+refuses unsafe non-ignored Git log roots because logs may contain prompts,
+diffs, metadata, local paths, and filenames.
 
 Start capture writes:
 
