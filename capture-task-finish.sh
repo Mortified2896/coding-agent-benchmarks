@@ -7,12 +7,13 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 if [[ $# -lt 1 ]]; then
-  print -u2 "Usage: capture-task-finish.sh <task_dir> [opencode_exit_code]"
+  print -u2 "Usage: capture-task-finish.sh <task_dir> [agent_exit_code] [agent_kind]"
   exit 1
 fi
 
 task_dir="$1"
-opencode_exit_code="${2:-}"
+agent_exit_code="${2:-}"
+agent_kind="${3:-opencode}"
 metadata_path="$task_dir/metadata.json"
 
 if [[ ! -f "$metadata_path" ]]; then
@@ -44,8 +45,8 @@ tmp_metadata=$(mktemp)
 jq \
   --arg timestamp_end "$timestamp_end" \
   --arg session_finish_time "$timestamp_end" \
-  --arg opencode_exit_code "$opencode_exit_code" \
-  --arg agent_exit_code "$opencode_exit_code" \
+  --arg agent_exit_code "$agent_exit_code" \
+  --arg agent_kind "$agent_kind" \
   --arg final_git_status "$git_status_after" \
   --arg final_git_diff_summary "$git_diff_summary" \
   --arg git_status_short_after_path "$status_after_path" \
@@ -55,7 +56,6 @@ jq \
   '. + {
     timestamp_end: $timestamp_end,
     session_finish_time: $session_finish_time,
-    opencode_exit_code: $opencode_exit_code,
     agent_exit_code: $agent_exit_code,
     final_git_status: $final_git_status,
     final_git_diff_summary: $final_git_diff_summary,
@@ -63,7 +63,7 @@ jq \
     git_diff_patch_path: $git_diff_patch_path,
     git_diff_stat_path: $git_diff_stat_path,
     git_diff_numstat_path: $git_diff_numstat_path
-  }' \
+  } + (if $agent_kind == "hermes" then {hermes_exit_code: $agent_exit_code} else {opencode_exit_code: $agent_exit_code} end)' \
   "$metadata_path" > "$tmp_metadata"
 mv "$tmp_metadata" "$metadata_path"
 
@@ -73,8 +73,13 @@ mv "$tmp_metadata" "$metadata_path"
   print -r -- "- Task directory: \`$task_dir\`"
   print -r -- "- Repository: \`$repo\`"
   print -r -- "- Finished: \`$timestamp_end\`"
-  if [[ -n "$opencode_exit_code" ]]; then
-    print -r -- "- OpenCode exit code: \`$opencode_exit_code\`"
+  if [[ -n "$agent_exit_code" ]]; then
+    print -r -- "- Agent exit code: \`$agent_exit_code\`"
+    if [[ "$agent_kind" == "hermes" ]]; then
+      print -r -- "- Hermes exit code: \`$agent_exit_code\`"
+    else
+      print -r -- "- OpenCode exit code: \`$agent_exit_code\`"
+    fi
   fi
   print -r -- "- Diff stat: \`git-diff-stat.txt\`"
   print -r -- "- Diff patch: \`git-diff.patch\`"

@@ -86,6 +86,14 @@ task_source="${TASK_SOURCE:-${OPENCODEBENCH_TASK_SOURCE:-manual}}"
 agent_command_label="${AGENT_COMMAND_LABEL:-${OPENCODEBENCH_AGENT_COMMAND_LABEL:-${harness}-${harness_mode}}}"
 launcher_used="${LAUNCHER_USED:-}"
 opencode_executable_path="${OPENCODE_EXECUTABLE_PATH:-}"
+downstream_agent="${DOWNSTREAM_AGENT:-${OPENCODEBENCH_DOWNSTREAM_AGENT:-}}"
+downstream_agent_mode="${DOWNSTREAM_AGENT_MODE:-${OPENCODEBENCH_DOWNSTREAM_AGENT_MODE:-}}"
+hermes_executable_path="${HERMES_EXECUTABLE_PATH:-}"
+hermes_version="${HERMES_VERSION:-}"
+hermes_profile="${HERMES_PROFILE:-}"
+hermes_memory_mode="${HERMES_MEMORY_MODE:-${OPENCODEBENCH_HERMES_MEMORY_MODE:-}}"
+hermes_memory_enabled="${HERMES_MEMORY_ENABLED:-}"
+hermes_user_profile_enabled="${HERMES_USER_PROFILE_ENABLED:-}"
 model="${MODEL:-${OPENCODE_MODEL:-unknown}}"
 reasoning_level="${REASONING_LEVEL:-}"
 git_head_before=$(git -C "$git_root" rev-parse HEAD)
@@ -141,6 +149,14 @@ jq -n \
   --arg agent_command_label "$agent_command_label" \
   --arg launcher_used "$launcher_used" \
   --arg opencode_executable_path "$opencode_executable_path" \
+  --arg downstream_agent "$downstream_agent" \
+  --arg downstream_agent_mode "$downstream_agent_mode" \
+  --arg hermes_executable_path "$hermes_executable_path" \
+  --arg hermes_version "$hermes_version" \
+  --arg hermes_profile "$hermes_profile" \
+  --arg hermes_memory_mode "$hermes_memory_mode" \
+  --arg hermes_memory_enabled "$hermes_memory_enabled" \
+  --arg hermes_user_profile_enabled "$hermes_user_profile_enabled" \
   --arg model_id "$model" \
   --arg reasoning_level "$reasoning_level" \
   --arg repo_path "$git_root" \
@@ -169,6 +185,14 @@ jq -n \
     agent_command_label: $agent_command_label,
     launcher_used: $launcher_used,
     opencode_executable_path: $opencode_executable_path,
+    downstream_agent: $downstream_agent,
+    downstream_agent_mode: $downstream_agent_mode,
+    hermes_executable_path: $hermes_executable_path,
+    hermes_version: $hermes_version,
+    hermes_profile: $hermes_profile,
+    hermes_memory_mode: $hermes_memory_mode,
+    hermes_memory_enabled: $hermes_memory_enabled,
+    hermes_user_profile_enabled: $hermes_user_profile_enabled,
     model_id: $model_id,
     reasoning_level: $reasoning_level,
     repo_path: $repo_path,

@@ -10,19 +10,48 @@ default_repo="${OPENCODEBENCH_REPO:-${OPENCODEBENCH_DEFAULT_REPO:-$HOME}}"
 default_repo="${default_repo/#\~/$HOME}"
 opencodebench_harness="${OPENCODEBENCH_HARNESS:-opencode}"
 opencodebench_harness_mode="${OPENCODEBENCH_HARNESS_MODE:-direct}"
-opencodebench_agent_command_label="${OPENCODEBENCH_AGENT_COMMAND_LABEL:-opencode-direct}"
+opencodebench_agent_command_label="${OPENCODEBENCH_AGENT_COMMAND_LABEL:-}"
 opencodebench_task_source="${OPENCODEBENCH_TASK_SOURCE:-desktop_app}"
-wrapper="$HOME/.local/share/opencodebench/opencode-bench.sh"
+opencodebench_downstream_agent="${OPENCODEBENCH_DOWNSTREAM_AGENT:-}"
+opencodebench_hermes_memory_mode="${OPENCODEBENCH_HERMES_MEMORY_MODE:-}"
+wrapper=""
 
-if [[ "$opencodebench_harness" != "opencode" || "$opencodebench_harness_mode" != "direct" ]]; then
-  message="Unsupported OpenCodeBench harness: ${opencodebench_harness}/${opencodebench_harness_mode}. Currently supported: opencode/direct."
+case "${opencodebench_harness}/${opencodebench_harness_mode}" in
+  opencode/direct)
+    wrapper="$HOME/.local/share/opencodebench/opencode-bench.sh"
+    if [[ -z "$opencodebench_agent_command_label" ]]; then
+      opencodebench_agent_command_label="opencode-direct"
+    fi
+    ;;
+  hermes/orchestrating-opencode)
+    wrapper="$HOME/.local/share/opencodebench/hermes-bench.sh"
+    if [[ -z "$opencodebench_downstream_agent" ]]; then
+      opencodebench_downstream_agent="opencode"
+    fi
+    if [[ -z "$opencodebench_hermes_memory_mode" ]]; then
+      opencodebench_hermes_memory_mode="on"
+    fi
+    if [[ -z "$opencodebench_agent_command_label" ]]; then
+      opencodebench_agent_command_label="hermes-orchestrating-opencode"
+    fi
+    ;;
+  *)
+    message="Unsupported OpenCodeBench harness: ${opencodebench_harness}/${opencodebench_harness_mode}. Currently supported: opencode/direct, hermes/orchestrating-opencode."
+    print -u2 "Error: $message"
+    osascript -e 'display alert "OpenCodeBench" message "Unsupported OpenCodeBench harness. Currently supported: opencode/direct and hermes/orchestrating-opencode." as critical'
+    exit 1
+    ;;
+esac
+
+if [[ "$opencodebench_harness" == "hermes" && "$opencodebench_downstream_agent" != "opencode" ]]; then
+  message="Unsupported Hermes downstream agent: ${opencodebench_downstream_agent}. Currently supported: opencode."
   print -u2 "Error: $message"
-  osascript -e 'display alert "OpenCodeBench" message "Unsupported OpenCodeBench harness. Currently supported: opencode/direct." as critical'
+  osascript -e 'display alert "OpenCodeBench" message "Unsupported Hermes downstream agent. Currently supported: opencode." as critical'
   exit 1
 fi
 
 if [[ ! -x "$wrapper" ]]; then
-  osascript -e 'display alert "OpenCodeBench" message "Benchmark wrapper not found or not executable at ~/.local/share/opencodebench/opencode-bench.sh. Reinstall OpenCodeBench.app." as critical'
+  osascript -e "display alert \"OpenCodeBench\" message \"Benchmark wrapper not found or not executable at $wrapper. Reinstall OpenCodeBench.app.\" as critical"
   exit 1
 fi
 
@@ -32,7 +61,7 @@ if ! git -C "$default_repo" rev-parse --show-toplevel >/dev/null 2>&1; then
 fi
 
 repo_root="$(git -C "$default_repo" rev-parse --show-toplevel)"
-terminal_command="cd $(printf '%q' "$repo_root") && OPENCODEBENCH_REPO=$(printf '%q' "$repo_root") OPENCODEBENCH_HARNESS=$(printf '%q' "$opencodebench_harness") OPENCODEBENCH_HARNESS_MODE=$(printf '%q' "$opencodebench_harness_mode") OPENCODEBENCH_AGENT_COMMAND_LABEL=$(printf '%q' "$opencodebench_agent_command_label") OPENCODEBENCH_TASK_SOURCE=$(printf '%q' "$opencodebench_task_source") exec $(printf '%q' "$wrapper")"
+terminal_command="cd $(printf '%q' "$repo_root") && OPENCODEBENCH_REPO=$(printf '%q' "$repo_root") OPENCODEBENCH_HARNESS=$(printf '%q' "$opencodebench_harness") OPENCODEBENCH_HARNESS_MODE=$(printf '%q' "$opencodebench_harness_mode") OPENCODEBENCH_DOWNSTREAM_AGENT=$(printf '%q' "$opencodebench_downstream_agent") OPENCODEBENCH_HERMES_MEMORY_MODE=$(printf '%q' "$opencodebench_hermes_memory_mode") OPENCODEBENCH_AGENT_COMMAND_LABEL=$(printf '%q' "$opencodebench_agent_command_label") OPENCODEBENCH_TASK_SOURCE=$(printf '%q' "$opencodebench_task_source") exec $(printf '%q' "$wrapper")"
 
 osascript <<OSA
 tell application "Terminal"

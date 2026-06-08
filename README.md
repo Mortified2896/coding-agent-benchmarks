@@ -2,9 +2,9 @@
 
 Lightweight local capture tooling for OpenCodeBench sessions.
 
-OpenCodeBench launches the real installed `opencode` CLI from a selected Git repository root, records pre-run Git metadata, injects `opencodebench.*` OpenTelemetry resource attributes, waits for OpenCode to exit, and then records the final Git status and diff.
+OpenCodeBench launches a selected coding-agent harness from a Git repository root, records pre-run Git metadata, injects `opencodebench.*` OpenTelemetry resource attributes, waits for the harness to exit, and then records the final Git status and diff.
 
-It does not modify, alias, or bundle OpenCode.
+It does not modify, alias, or bundle OpenCode or Hermes.
 
 ## Install
 
@@ -32,7 +32,9 @@ OPENCODEBENCH_REPO="/path/to/repo" ./opencode-bench.sh
 
 The macOS app launcher reads `~/.config/opencodebench/config.env`, resolves `OPENCODEBENCH_REPO` or `OPENCODEBENCH_DEFAULT_REPO` to its Git root, changes into that root, and runs the installed wrapper from `~/.local/share/opencodebench`.
 
-The currently supported harness is OpenCode direct:
+The supported harnesses are OpenCode direct and Hermes orchestrating OpenCode.
+
+OpenCode direct:
 
 ```sh
 OPENCODEBENCH_HARNESS=opencode
@@ -41,7 +43,18 @@ OPENCODEBENCH_AGENT_COMMAND_LABEL=opencode-direct
 OPENCODEBENCH_TASK_SOURCE=desktop_app
 ```
 
-Other harness values are reserved for future wrappers and fail clearly today.
+Hermes orchestrating OpenCode:
+
+```sh
+OPENCODEBENCH_HARNESS=hermes
+OPENCODEBENCH_HARNESS_MODE=orchestrating-opencode
+OPENCODEBENCH_DOWNSTREAM_AGENT=opencode
+OPENCODEBENCH_HERMES_MEMORY_MODE=on
+OPENCODEBENCH_AGENT_COMMAND_LABEL=hermes-orchestrating-opencode
+OPENCODEBENCH_TASK_SOURCE=desktop_app
+```
+
+For Hermes orchestration, Hermes is treated as the main harness. OpenCode is recorded as `downstream_agent=opencode`; the wrapper does not directly observe a downstream OpenCode exit code yet. Hermes memory stays on by default. Memory-off benchmarking is intentionally not implemented yet.
 
 ## Logs
 
@@ -91,12 +104,16 @@ Finish capture writes:
 - `task_source`
 - `agent_command_label`
 - `agent_exit_code`
+- `downstream_agent`
+- `downstream_agent_mode`
 
 For OpenCode runs, `agent_exit_code` matches the existing `opencode_exit_code` field.
 
+For Hermes runs, `agent_exit_code` matches `hermes_exit_code`. Hermes metadata includes available safe fields such as `hermes_executable_path`, `hermes_version`, `hermes_profile`, `hermes_memory_mode`, `hermes_memory_enabled`, and `hermes_user_profile_enabled`. OpenCodeBench does not capture raw Hermes memory, profile, config, session transcript, auth, env, or log contents.
+
 ## Telemetry Metadata
 
-`opencode-bench.sh` appends these fields to `OTEL_RESOURCE_ATTRIBUTES`:
+The wrappers append these fields to `OTEL_RESOURCE_ATTRIBUTES`:
 
 - `opencodebench.session_id`
 - `opencodebench.project_id`
@@ -104,4 +121,4 @@ For OpenCode runs, `agent_exit_code` matches the existing `opencode_exit_code` f
 - `opencodebench.task_dir`
 - `opencodebench.git_commit_before`
 
-The same values are also exported as `OPENCODEBENCH_*` environment variables for the launched OpenCode process.
+The same values are also exported as `OPENCODEBENCH_*` environment variables for the launched harness process.

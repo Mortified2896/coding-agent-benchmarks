@@ -19,9 +19,10 @@ chmod +x "$target_app/Contents/MacOS/OpenCodeBench"
 
 mkdir -p "$target_support_dir"
 cp "$script_dir/opencode-bench.sh" "$target_support_dir/opencode-bench.sh"
+cp "$script_dir/hermes-bench.sh" "$target_support_dir/hermes-bench.sh"
 cp "$script_dir/capture-task-start.sh" "$target_support_dir/capture-task-start.sh"
 cp "$script_dir/capture-task-finish.sh" "$target_support_dir/capture-task-finish.sh"
-chmod +x "$target_support_dir/opencode-bench.sh" "$target_support_dir/capture-task-start.sh" "$target_support_dir/capture-task-finish.sh"
+chmod +x "$target_support_dir/opencode-bench.sh" "$target_support_dir/hermes-bench.sh" "$target_support_dir/capture-task-start.sh" "$target_support_dir/capture-task-finish.sh"
 
 lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 if [[ -x "$lsregister" ]]; then
