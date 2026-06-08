@@ -4,9 +4,9 @@
 
 This copied historical investigation looked at how reliably normal day-to-day OpenCode, Hermes, Pi, and Langfuse usage can be converted into repeatable coding-agent benchmark cases.
 
-This document predates the standalone extraction. Paths that mention `~/GitHub/HomeLab` describe the original implementation context, not a constraint of the standalone OpenCodeBench wrapper. The reusable workflow is documented in `README.md` and `docs/task-capture-wrapper.md`.
+This document predates the standalone extraction. Paths shown here are examples from the original investigation, not constraints of the standalone OpenCodeBench wrapper. The reusable workflow is documented in `README.md` and `docs/task-capture-wrapper.md`.
 
-The workflow documentation and future lightweight tooling should live in `~/GitHub/HomeLab`. The existing Promptfoo MVP remains at `~/CodingAgentBenchmarks`. `~/GitHub/Finance-R-Simulations` is only an example benchmark target repository.
+The workflow documentation and future lightweight tooling should live in the target repository being benchmarked. The existing Promptfoo MVP remains at `~/CodingAgentBenchmarks`. `/path/to/example-target-repo` is only an example benchmark target repository.
 
 ## What Currently Exists
 
@@ -209,8 +209,8 @@ Recommended confidence labels for reconstructed old cases:
 Find Pi sessions for a repo:
 
 ```sh
-ls ~/.pi/agent/sessions/--Users-Jo-GitHub-HomeLab--/*.jsonl
-ls ~/.pi/agent/sessions/--Users-Jo-GitHub-Finance-R-Simulations--/*.jsonl
+ls ~/.pi/agent/sessions/--path-to-target-repo--/*.jsonl
+ls ~/.pi/agent/sessions/--path-to-example-target-repo--/*.jsonl
 ```
 
 Extract first session metadata from a Pi JSONL file:
@@ -224,13 +224,13 @@ jq -r 'select(.type == "message" and .message.role == "user") | .message.content
 Estimate the Git commit before a trace timestamp:
 
 ```sh
-git -C ~/GitHub/HomeLab log --before='2026-06-06T14:19:48Z' -1 --format='%H %cI %s'
+git -C /path/to/target-repo log --before='2026-06-06T14:19:48Z' -1 --format='%H %cI %s'
 ```
 
 Inspect reflog around a time window:
 
 ```sh
-git -C ~/GitHub/HomeLab reflog --date=iso
+git -C /path/to/target-repo reflog --date=iso
 ```
 
 Inspect OpenCode session diffs:
@@ -279,12 +279,12 @@ Minimum fields:
 - `check_output_path`
 - `notes`
 
-Use files, not a database. A good default layout in HomeLab is:
+Use files, not a database. A good default layout in a target repository is:
 
 ```text
-~/GitHub/HomeLab/docs/coding-agent-benchmarks/
-~/GitHub/HomeLab/tools/coding-agent-benchmarks/
-~/GitHub/HomeLab/.local/coding-agent-task-logs/YYYY/MM/<task-id>/
+<target repo>/docs/coding-agent-benchmarks/
+<target repo>/tools/coding-agent-benchmarks/
+<target repo>/.local/coding-agent-task-logs/YYYY/MM/<task-id>/
 ```
 
 The `.local` directory should remain ignored if it stores raw prompts, diffs, logs, or private local paths. Curated docs and script sketches can be committed under `docs/` and `tools/`.
@@ -332,7 +332,7 @@ Manual task note template:
 
 ## Recommended Minimal Implementation Plan
 
-1. Add a small capture script in HomeLab, for example `tools/coding-agent-benchmarks/capture-task-start.sh`.
+1. Add a small capture script in the target repository, for example `tools/coding-agent-benchmarks/capture-task-start.sh`.
 
    It should write `metadata.json`, `task.md`, `git-status-before.txt`, and `git-head-before.txt` into a timestamped local task directory.
 
@@ -371,7 +371,7 @@ head_sha=$(git -C "$git_root" rev-parse HEAD)
 branch=$(git -C "$git_root" branch --show-current)
 timestamp=$(date -u +%Y-%m-%dT%H-%M-%SZ)
 task_id="${timestamp}-${harness}-$(basename "$git_root")"
-out="$HOME/GitHub/HomeLab/.local/coding-agent-task-logs/${task_id}"
+out="/path/to/target-repo/.local/coding-agent-task-logs/${task_id}"
 
 mkdir -p "$out"
 
@@ -439,15 +439,15 @@ set -euo pipefail
 
 prompt_file="$1"
 task_dir=$(HARNESS=opencode MODEL="${OPENCODE_MODEL:-unknown}" \
-  ~/GitHub/HomeLab/tools/coding-agent-benchmarks/capture-task-start.sh "$PWD" "$prompt_file")
+  /path/to/target-repo/tools/coding-agent-benchmarks/capture-task-start.sh "$PWD" "$prompt_file")
 
 opencode < "$task_dir/task.md"
 
-~/GitHub/HomeLab/tools/coding-agent-benchmarks/capture-task-finish.sh "$task_dir" "${CHECK_COMMAND:-}"
+/path/to/target-repo/tools/coding-agent-benchmarks/capture-task-finish.sh "$task_dir" "${CHECK_COMMAND:-}"
 ```
 
 ## Recommendation
 
 Do not rely on Langfuse alone for benchmark reconstruction. Keep Langfuse as the searchable trace and conversation observability layer, but make a tiny local file-based task envelope the source of truth for benchmark reconstruction.
 
-The next implementation step should be a lightweight HomeLab-owned shell wrapper that captures pre-task Git state before launching OpenCode, then captures post-task diff/check artifacts afterward. Once that works, enrich Langfuse traces with the same `task_id`, `repo_path`, and `git_head_before` so cloud traces and local benchmark artifacts can be joined later.
+The next implementation step should be a lightweight shell wrapper that captures pre-task Git state before launching OpenCode, then captures post-task diff/check artifacts afterward. Once that works, enrich Langfuse traces with the same `task_id`, `repo_path`, and `git_head_before` so cloud traces and local benchmark artifacts can be joined later.
