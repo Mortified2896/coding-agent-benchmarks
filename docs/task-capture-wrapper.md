@@ -11,7 +11,7 @@ It captures the Git starting point before OpenCode runs, launches the real insta
 The wrapper can be run from inside any target Git repository:
 
 ```sh
-/Users/Jo/GitHub/coding-agent-benchmarks/opencode-bench.sh
+./opencode-bench.sh
 ```
 
 For launcher use, create:
@@ -23,7 +23,7 @@ For launcher use, create:
 Example:
 
 ```sh
-OPENCODEBENCH_DEFAULT_REPO="/Users/Jo/GitHub/HomeLab"
+OPENCODEBENCH_DEFAULT_REPO="$HOME/GitHub/example-repo"
 ```
 
 Optional overrides:
@@ -87,7 +87,7 @@ OpenCodeBench is a separate macOS launcher for this wrapper. It does not replace
 Install the launcher into `~/Applications`:
 
 ```sh
-/Users/Jo/GitHub/coding-agent-benchmarks/install-opencodebench-macos.sh
+./install-opencodebench-macos.sh
 ```
 
 The installer also copies the wrapper scripts to:

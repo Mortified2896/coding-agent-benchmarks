@@ -14,20 +14,20 @@ mkdir -p ~/.config/opencodebench
 cp config/config.env.example ~/.config/opencodebench/config.env
 ```
 
-Edit `~/.config/opencodebench/config.env` if you want the macOS launcher to open a default repository other than HomeLab.
+Edit `~/.config/opencodebench/config.env` if you want the macOS launcher to open a default repository.
 
 ## Run
 
 From inside any target repository:
 
 ```sh
-/Users/Jo/GitHub/coding-agent-benchmarks/opencode-bench.sh
+./opencode-bench.sh
 ```
 
 Or set the repo explicitly:
 
 ```sh
-OPENCODEBENCH_REPO="/path/to/repo" /Users/Jo/GitHub/coding-agent-benchmarks/opencode-bench.sh
+OPENCODEBENCH_REPO="/path/to/repo" ./opencode-bench.sh
 ```
 
 The macOS app launcher reads `~/.config/opencodebench/config.env`, changes into `OPENCODEBENCH_DEFAULT_REPO`, and runs the installed wrapper from `~/.local/share/opencodebench`.

@@ -6,7 +6,7 @@ if [[ -f "$config_file" ]]; then
   source "$config_file"
 fi
 
-default_repo="${OPENCODEBENCH_REPO:-${OPENCODEBENCH_DEFAULT_REPO:-$HOME/GitHub/HomeLab}}"
+default_repo="${OPENCODEBENCH_REPO:-${OPENCODEBENCH_DEFAULT_REPO:-$HOME}}"
 default_repo="${default_repo/#\~/$HOME}"
 wrapper="$HOME/.local/share/opencodebench/opencode-bench.sh"
 
