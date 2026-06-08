@@ -1,0 +1,11 @@
+.DS_Store
+*.log
+.env
+*.env
+!.env.example
+!config/*.env.example
+.local/
+results/
+worktrees/
+benchmark-cases/
+*.dSYM/
