@@ -27,6 +27,36 @@ for arg in "$@"; do
   esac
 done
 
+# Walk args for -m/--model worker model specification.
+# Supports: -m <model>, --model <model>, --model=<model>
+# Uses last-wins semantics matching the --dir walks.
+opencode_arg_model=""
+opencode_arg_model_count=0
+opencode_arg_model_seen=0
+prev_was_model=0
+for arg in "$@"; do
+  if [[ "$prev_was_model" -eq 1 ]]; then
+    prev_was_model=0
+    opencode_arg_model_seen=1
+    if [[ -z "$arg" || "$arg" == -* ]]; then
+      continue
+    fi
+    opencode_arg_model="$arg"
+    # Pre-increment: see comment in the --model= arm above.
+    (( ++opencode_arg_model_count ))
+    continue
+  fi
+  case "$arg" in
+    -m) prev_was_model=1 ;;
+    --model) prev_was_model=1 ;;
+    # Use ++var (pre-increment) instead of var++ (post-increment):
+    # under `set -e`, (( var++ )) exits 1 when var is 0 because zsh
+    # returns the OLD value as the expression's exit code. Pre-increment
+    # returns the NEW value, so 0->1 returns 1 and set -e is happy.
+    --model=*) opencode_arg_model="${arg#--model=}"; opencode_arg_model_seen=1; (( ++opencode_arg_model_count )) ;;
+  esac
+done
+
 if [[ -n "$target_dir_arg" ]]; then
   if [[ "$target_dir_arg" == /* ]]; then
     resolved_target_dir="$target_dir_arg"
@@ -60,6 +90,30 @@ fi
 
 repo_root="$(git -C "$working_directory" rev-parse --show-toplevel)"
 upstream_orchestrator="${OPENCODEBENCH_UPSTREAM_ORCHESTRATOR:-none}"
+
+# Resolve the worker model with precedence:
+#   1. argv -m/--model value (opencode_arg_model)
+#   2. OPENCODE_MODEL env
+#   3. MODEL env
+#   4. unknown (default)
+resolved_model="unknown"
+model_source="unknown"
+if [[ "$opencode_arg_model_seen" -eq 1 ]]; then
+  resolved_model="$opencode_arg_model"
+  model_source="argv"
+elif [[ -n "${OPENCODE_MODEL:-}" ]]; then
+  resolved_model="$OPENCODE_MODEL"
+  model_source="env"
+elif [[ -n "${MODEL:-}" ]]; then
+  resolved_model="$MODEL"
+  model_source="env"
+fi
+
+# Provider split: part before the first /
+provider="unknown"
+if [[ -n "$resolved_model" && "$resolved_model" == */* ]]; then
+  provider="${resolved_model%%/*}"
+fi
 
 case "$upstream_orchestrator" in
   ""|none)
@@ -108,6 +162,21 @@ case "$opencode_bin" in
     exit 127
     ;;
 esac
+
+# Export resolved model/provider/source for downstream (capture-task-start.sh
+# and the real opencode binary). When the resolved value is empty or is the
+# literal string "unknown", export empty strings so the capture script's
+# default fallback (${MODEL:-${OPENCODE_MODEL:-unknown}}) produces "unknown".
+if [[ -z "$resolved_model" || "$resolved_model" == "unknown" ]]; then
+  export OPENCODE_MODEL=""
+  export MODEL=""
+else
+  export OPENCODE_MODEL="$resolved_model"
+  export MODEL="$resolved_model"
+fi
+export OPENCODEBENCH_WORKER_MODEL="$resolved_model"
+export OPENCODEBENCH_WORKER_PROVIDER="$provider"
+export OPENCODEBENCH_WORKER_MODEL_SOURCE="$model_source"
 
 task_dir=$(
   HARNESS=opencode \
