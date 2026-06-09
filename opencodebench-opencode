@@ -48,6 +48,19 @@ Stage 2 env vars (all optional):
                                         can be overridden by -m / --model.
                                         Precedence: argv > OPENCODE_MODEL
                                         > MODEL > "unknown".
+  OPENCODEBENCH_SKIP_EVALUATION_TEMPLATE
+                                        set to 1 to skip the evaluation
+                                        sidecar (see below).
+                                        Default: unset (template is written)
+
+Evaluation sidecar (Card 5):
+  After each run the wrapper reads config/evaluation_template.md (the
+  single source of truth) and copies it to <task_dir>/evaluation.md,
+  replacing placeholder markers with run-context fields from
+  metadata.json (task_id, repo_path, model_id, task_type, timing,
+  exit_code, diff summary). If evaluation.md already exists (re-run),
+  a Re-run note section is appended instead. Set
+  OPENCODEBENCH_SKIP_EVALUATION_TEMPLATE=1 to skip the sidecar.
 
 Stage 1 metadata fields (always captured):
   task_id, timestamp, timestamp_start, session_start_time, harness,
@@ -317,12 +330,129 @@ else
   export OTEL_RESOURCE_ATTRIBUTES="$opencodebench_otel_attributes"
 fi
 
+# sed-escape helper for evaluation template substitution
+sed_escape() {
+  local val="$1"
+  val="${val//\\/\\\\}"
+  val="${val//&/\\&}"
+  val="${val//|/\\|}"
+  val="${val//$'\n'/\\n}"
+  val="${val//$'\x01'/\\x01}"
+  printf '%s' "$val"
+}
+
+# Stage 2 Card 5: evaluation sidecar. Writes a pre-filled Human Evaluation
+# template to <task_dir>/evaluation.md after the run finishes. Skips when
+# OPENCODEBENCH_SKIP_EVALUATION_TEMPLATE=1. Does not overwrite an existing
+# evaluation.md; appends a Re-run note section instead.
+write_evaluation_template() {
+  local task_dir="$1"
+
+  if [[ "${OPENCODEBENCH_SKIP_EVALUATION_TEMPLATE:-}" == "1" ]]; then
+    return 0
+  fi
+
+  local metadata_path="$task_dir/metadata.json"
+  if [[ ! -f "$metadata_path" ]]; then
+    return 0
+  fi
+
+  local template_path=""
+  if [[ -f "$script_dir/config/evaluation_template.md" ]]; then
+    template_path="$script_dir/config/evaluation_template.md"
+  elif [[ -f "$repo_root/config/evaluation_template.md" ]]; then
+    template_path="$repo_root/config/evaluation_template.md"
+  fi
+
+  if [[ -z "$template_path" ]]; then
+    return 0
+  fi
+
+  local evaluation_path="$task_dir/evaluation.md"
+
+  local tid rpath mid ttype stime ftime dur ec fc la ld wtd dp
+  tid=$(jq -r '.task_id // "unknown"' "$metadata_path") || tid="unknown"
+  rpath=$(jq -r '.repo_path // "unknown"' "$metadata_path") || rpath="unknown"
+  mid=$(jq -r '.model_id // "unknown"' "$metadata_path") || mid="unknown"
+  ttype=$(jq -r '.opencodebench.task_type // .task_type // "unspecified"' "$metadata_path") || ttype="unspecified"
+  stime=$(jq -r '.start_time // "unknown"' "$metadata_path") || stime="unknown"
+  ftime=$(jq -r '.finish_time // "unknown"' "$metadata_path") || ftime="unknown"
+  dur=$(jq -r '.duration_seconds // "unknown"' "$metadata_path") || dur="unknown"
+  ec=$(jq -r '.exit_code // "unknown"' "$metadata_path") || ec="unknown"
+  fc=$(jq -r '.files_changed // 0' "$metadata_path") || fc="0"
+  la=$(jq -r '.lines_added // 0' "$metadata_path") || la="0"
+  ld=$(jq -r '.lines_deleted // 0' "$metadata_path") || ld="0"
+  wtd=$(jq -r '.working_tree_dirty_after // "null"' "$metadata_path") || wtd="null"
+  dp=$(jq -r '.diff_produced // "false"' "$metadata_path") || dp="false"
+
+  local evaluated_at
+  evaluated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ) || evaluated_at="unknown"
+
+  if [[ -f "$evaluation_path" ]]; then
+    if ! {
+      print -r -- ""
+      print -r -- "## Re-run note"
+      print -r -- ""
+      print -r -- "This evaluation.md was re-generated on a subsequent run."
+      print -r -- ""
+      print -r -- "- **Re-run task_id:** $tid"
+      print -r -- "- **Re-run model_id:** $mid"
+      print -r -- "- **Re-run start_time:** $stime"
+      print -r -- "- **Re-run finish_time:** $ftime"
+      print -r -- "- **Re-run duration:** ${dur}s"
+      print -r -- "- **Re-run exit_code:** $ec"
+      print -r -- "- **Re-run files_changed:** $fc"
+      print -r -- "- **Re-run lines_added:** $la"
+      print -r -- "- **Re-run lines_deleted:** $ld"
+      print -r -- "- **Working tree dirty after:** $wtd"
+      print -r -- "- **Diff produced:** $dp"
+    } >> "$evaluation_path"; then
+      print -u2 "Warning: failed to append re-run note to '$evaluation_path'"
+    fi
+  else
+    local d=$'\x01'
+    local tid_e rpath_e mid_e ttype_e stime_e ftime_e dur_e ec_e fc_e la_e ld_e wtd_e dp_e ea_e
+    tid_e=$(sed_escape "$tid")
+    rpath_e=$(sed_escape "$rpath")
+    mid_e=$(sed_escape "$mid")
+    ttype_e=$(sed_escape "$ttype")
+    stime_e=$(sed_escape "$stime")
+    ftime_e=$(sed_escape "$ftime")
+    dur_e=$(sed_escape "$dur")
+    ec_e=$(sed_escape "$ec")
+    fc_e=$(sed_escape "$fc")
+    la_e=$(sed_escape "$la")
+    ld_e=$(sed_escape "$ld")
+    wtd_e=$(sed_escape "$wtd")
+    dp_e=$(sed_escape "$dp")
+    ea_e=$(sed_escape "$evaluated_at")
+    if ! sed -e "s${d}<!-- run_id -->${d}${tid_e}${d}g" \
+             -e "s${d}<!-- repository -->${d}${rpath_e}${d}g" \
+             -e "s${d}<!-- model -->${d}${mid_e}${d}g" \
+             -e "s${d}<!-- task_type -->${d}${ttype_e}${d}g" \
+             -e "s${d}<!-- start_time -->${d}${stime_e}${d}g" \
+             -e "s${d}<!-- finish_time -->${d}${ftime_e}${d}g" \
+             -e "s${d}<!-- duration -->${d}${dur_e}${d}g" \
+             -e "s${d}<!-- exit_code -->${d}${ec_e}${d}g" \
+             -e "s${d}<!-- files_changed -->${d}${fc_e}${d}g" \
+             -e "s${d}<!-- lines_added -->${d}${la_e}${d}g" \
+             -e "s${d}<!-- lines_deleted -->${d}${ld_e}${d}g" \
+             -e "s${d}<!-- working_tree_dirty_after -->${d}${wtd_e}${d}g" \
+             -e "s${d}<!-- diff_produced -->${d}${dp_e}${d}g" \
+             -e "s${d}<!-- evaluated_at -->${d}${ea_e}${d}g" \
+             "$template_path" > "$evaluation_path"; then
+      print -u2 "Warning: failed to write '$evaluation_path'"
+    fi
+  fi
+}
+
 opencode_exit_code=0
 finished=0
 finish_capture() {
   if [[ "$finished" -eq 0 ]]; then
     finished=1
     "$script_dir/capture-task-finish.sh" "$task_dir" "$opencode_exit_code" >/dev/null || true
+    write_evaluation_template "$task_dir"
     print -r -- "OpenCodeBench task log directory: $task_dir"
   fi
 }
