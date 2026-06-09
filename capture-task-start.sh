@@ -108,6 +108,42 @@ hermes_memory_enabled="${HERMES_MEMORY_ENABLED:-}"
 hermes_user_profile_enabled="${HERMES_USER_PROFILE_ENABLED:-}"
 model="${MODEL:-${OPENCODE_MODEL:-unknown}}"
 reasoning_level="${REASONING_LEVEL:-}"
+
+# Stage 2 Card 3: task_type env-var passthrough.
+# Allowed values (case-insensitive, normalized to lowercase, trimmed):
+#   implementation, debugging, review, docs, investigation,
+#   refactor, validation, architecture.
+# Missing/empty: task_type="unspecified" (do not crash, do not warn).
+# Unknown value: record the raw value AND warn to stderr (do not coerce).
+# This is a fail-loud design — bad data is worse than no data only when
+# you don't notice. The set is intentionally small and explicit so the
+# taxonomy is easy to slice on.
+allowed_task_types=(
+  implementation debugging review docs investigation
+  refactor validation architecture
+)
+task_type_raw="${OPENCODEBENCH_TASK_TYPE:-}"
+task_type=""
+task_type_status="unset"
+if [[ -n "$task_type_raw" ]]; then
+  task_type="$(printf '%s' "$task_type_raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+  if [[ -z "$task_type" ]]; then
+    # Whitespace-only input — treat like unset, not like an unknown value.
+    task_type="unspecified"
+    task_type_status="empty"
+  elif (( ${allowed_task_types[(Ie)$task_type]} )); then
+    task_type_status="valid"
+  else
+    # Unknown value: keep the raw (lowercased) value so downstream
+    # analysis can see what was attempted, and warn loudly.
+    print -u2 "Warning: OPENCODEBENCH_TASK_TYPE='$task_type_raw' (normalized: '$task_type') is not in the allowed set."
+    print -u2 "Allowed values: ${allowed_task_types[*]}"
+    print -u2 "Recording the raw value verbatim; downstream analysis should treat this as unknown."
+    task_type_status="unknown"
+  fi
+else
+  task_type="unspecified"
+fi
 git_head_before=$(git -C "$git_root" rev-parse HEAD)
 git_branch_before=$(git -C "$git_root" branch --show-current)
 
@@ -184,6 +220,9 @@ jq -n \
   --arg hermes_user_profile_enabled "$hermes_user_profile_enabled" \
   --arg model_id "$model" \
   --arg reasoning_level "$reasoning_level" \
+  --arg task_type "$task_type" \
+  --arg task_type_status "$task_type_status" \
+  --arg task_type_raw "$task_type_raw" \
   --arg repo_path "$git_root" \
   --arg cwd "$PWD" \
   --arg git_root "$git_root" \
@@ -227,6 +266,9 @@ jq -n \
     hermes_user_profile_enabled: $hermes_user_profile_enabled,
     model_id: $model_id,
     reasoning_level: $reasoning_level,
+    task_type: $task_type,
+    task_type_status: $task_type_status,
+    task_type_raw: (if $task_type_raw == "" then null else $task_type_raw end),
     repo_path: $repo_path,
     cwd: $cwd,
     git_root: $git_root,
@@ -250,6 +292,8 @@ jq -n \
       repo_root: $opencodebench_repo_root,
       task_dir: $opencodebench_task_dir,
       git_commit_before: $opencodebench_git_commit_before,
+      task_type: $task_type,
+      task_type_status: $task_type_status,
       timing: {
         start_unix_seconds: $opencodebench_start_unix_seconds
       }

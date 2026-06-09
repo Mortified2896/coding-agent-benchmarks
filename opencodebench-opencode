@@ -4,6 +4,88 @@ set -euo pipefail
 script_dir="${0:A:h}"
 wrapper_path="${0:A}"
 
+# Stage 2 Card 3: --help handler. Print usage and exit before any side
+# effects (no Git detection, no capture, no opencode launch). This is
+# intentionally a separate top-level flag, not opencode's --help, so
+# callers can read the Stage 2 env-var docs without launching a real
+# OpenCode session.
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  cat <<'USAGE'
+opencodebench-opencode — Stage 1/2 tracked wrapper for the real OpenCode CLI
+
+Usage:
+  opencodebench-opencode [--dir <path>] [--help] [-m <model>]
+                         [--model <model>] [opencode-args...]
+
+Required:
+  Run from inside an existing Git repository, OR pass --dir <path>
+  pointing to one. Stage 1 tracks existing Git repositories only;
+  it does not run `git init` or select a configured project.
+
+Stage 2 env vars (all optional):
+  OPENCODEBENCH_UPSTREAM_ORCHESTRATOR   none|hermes|unknown
+                                        (default: none)
+  OPENCODEBENCH_HARNESS_MODE            direct|delegated
+                                        (default: derived from orchestrator)
+  OPENCODEBENCH_TASK_SOURCE             manual|user|cli|hermes_orchestrator|...
+                                        (default: derived)
+  OPENCODEBENCH_AGENT_COMMAND_LABEL     free-form string (default: <harness>-<mode>)
+  OPENCODEBENCH_TRACKING_HARNESS        free-form string
+  OPENCODEBENCH_EXECUTION_AGENT         free-form string
+  OPENCODEBENCH_ORCHESTRATION_MODE      free-form string
+  OPENCODEBENCH_REPO_DETECTION_METHOD   free-form string
+  OPENCODEBENCH_WORKING_DIRECTORY       absolute path
+  OPENCODEBENCH_LOG_ROOT                absolute path; must be outside any
+                                        Git repository or gitignored
+  OPENCODEBENCH_OPENCODE_BIN            absolute path to a real opencode
+                                        binary (default: $PATH lookup)
+  OPENCODEBENCH_TASK_TYPE               implementation | debugging | review
+                                        | docs | investigation | refactor
+                                        | validation | architecture
+                                        Missing: task_type="unspecified"
+                                        Unknown: raw value recorded + warn
+  OPENCODE_MODEL or MODEL               <provider>/<model> string;
+                                        can be overridden by -m / --model.
+                                        Precedence: argv > OPENCODE_MODEL
+                                        > MODEL > "unknown".
+
+Stage 1 metadata fields (always captured):
+  task_id, timestamp, timestamp_start, session_start_time, harness,
+  harness_mode, task_source, agent_command_label, launcher_used,
+  opencode_executable_path, tracking_harness, execution_agent,
+  upstream_orchestrator, orchestration_mode, repo_detection_method,
+  working_directory, downstream_agent, downstream_agent_mode,
+  hermes_executable_path, hermes_version, hermes_profile,
+  hermes_memory_mode, hermes_memory_enabled,
+  hermes_user_profile_enabled, model_id, reasoning_level,
+  repo_path, cwd, git_root, git_commit, git_branch, git_status,
+  git_head_before, git_branch_before, opencodebench.*, plus the
+  Stage 2 fields added in Cards 1-3:
+    model_id, start_time, finish_time, duration_seconds, exit_code,
+    opencodebench.timing.{start_unix_seconds, finish_unix_seconds,
+    duration_seconds}, opencodebench.task_type,
+    opencodebench.task_type_status.
+
+OpenCode passthrough:
+  All arguments other than --dir, -m, --model, --help, -h are passed
+  through to the real opencode binary unchanged. --dir is rewritten
+  to its resolved absolute path so opencode's runtime chdir matches
+  the wrapper's repo detection.
+
+Hermes-hostile env workaround:
+  OPENCODE_SERVER_PASSWORD and OPENCODE_SERVER_USERNAME are stripped
+  from the child env unless the opencode subcommand is "attach"
+  (which needs them to authenticate against a running opencode
+  server). This is a workaround for terminals that inherit those
+  vars and cause plain `opencode run` to fail with "Session not found".
+
+See docs/task-capture-wrapper.md for the full Stage 1 design and
+.hermes/plans/2026-06-09-stage-2-implementation-plan.md for the
+Stage 2 schema additions.
+USAGE
+  exit 0
+fi
+
 # Stage 1 supports two repo-detection modes:
 #   - cwd_git_root:  no --dir flag, detect from wrapper's PWD
 #   - opencode_dir_git_root: --dir <path> flag, use the resolved
