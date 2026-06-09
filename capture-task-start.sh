@@ -86,6 +86,12 @@ task_source="${TASK_SOURCE:-${OPENCODEBENCH_TASK_SOURCE:-manual}}"
 agent_command_label="${AGENT_COMMAND_LABEL:-${OPENCODEBENCH_AGENT_COMMAND_LABEL:-${harness}-${harness_mode}}}"
 launcher_used="${LAUNCHER_USED:-}"
 opencode_executable_path="${OPENCODE_EXECUTABLE_PATH:-}"
+tracking_harness="${TRACKING_HARNESS:-${OPENCODEBENCH_TRACKING_HARNESS:-}}"
+execution_agent="${EXECUTION_AGENT:-${OPENCODEBENCH_EXECUTION_AGENT:-}}"
+upstream_orchestrator="${UPSTREAM_ORCHESTRATOR:-${OPENCODEBENCH_UPSTREAM_ORCHESTRATOR:-}}"
+orchestration_mode="${ORCHESTRATION_MODE:-${OPENCODEBENCH_ORCHESTRATION_MODE:-}}"
+repo_detection_method="${REPO_DETECTION_METHOD:-${OPENCODEBENCH_REPO_DETECTION_METHOD:-}}"
+working_directory="${WORKING_DIRECTORY:-${OPENCODEBENCH_WORKING_DIRECTORY:-$PWD}}"
 downstream_agent="${DOWNSTREAM_AGENT:-${OPENCODEBENCH_DOWNSTREAM_AGENT:-}}"
 downstream_agent_mode="${DOWNSTREAM_AGENT_MODE:-${OPENCODEBENCH_DOWNSTREAM_AGENT_MODE:-}}"
 hermes_executable_path="${HERMES_EXECUTABLE_PATH:-}"
@@ -149,6 +155,12 @@ jq -n \
   --arg agent_command_label "$agent_command_label" \
   --arg launcher_used "$launcher_used" \
   --arg opencode_executable_path "$opencode_executable_path" \
+  --arg tracking_harness "$tracking_harness" \
+  --arg execution_agent "$execution_agent" \
+  --arg upstream_orchestrator "$upstream_orchestrator" \
+  --arg orchestration_mode "$orchestration_mode" \
+  --arg repo_detection_method "$repo_detection_method" \
+  --arg working_directory "$working_directory" \
   --arg downstream_agent "$downstream_agent" \
   --arg downstream_agent_mode "$downstream_agent_mode" \
   --arg hermes_executable_path "$hermes_executable_path" \
@@ -185,6 +197,12 @@ jq -n \
     agent_command_label: $agent_command_label,
     launcher_used: $launcher_used,
     opencode_executable_path: $opencode_executable_path,
+    tracking_harness: $tracking_harness,
+    execution_agent: $execution_agent,
+    upstream_orchestrator: $upstream_orchestrator,
+    orchestration_mode: $orchestration_mode,
+    repo_detection_method: $repo_detection_method,
+    working_directory: $working_directory,
     downstream_agent: $downstream_agent,
     downstream_agent_mode: $downstream_agent_mode,
     hermes_executable_path: $hermes_executable_path,

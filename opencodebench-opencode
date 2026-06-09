@@ -1,0 +1,157 @@
+#!/bin/zsh
+set -euo pipefail
+
+script_dir="${0:A:h}"
+wrapper_path="${0:A}"
+working_directory="$PWD"
+
+if ! git -C "$working_directory" rev-parse --show-toplevel >/dev/null 2>&1; then
+  print -u2 "Error: opencodebench-opencode must be run from inside an existing Git repository."
+  print -u2 "Checked working directory: $working_directory"
+  print -u2 "Stage 1 tracks existing Git repositories only; it will not run git init or select a configured project."
+  exit 1
+fi
+
+repo_root="$(git -C "$working_directory" rev-parse --show-toplevel)"
+upstream_orchestrator="${OPENCODEBENCH_UPSTREAM_ORCHESTRATOR:-none}"
+
+case "$upstream_orchestrator" in
+  ""|none)
+    upstream_orchestrator="none"
+    opencodebench_harness_mode="direct"
+    opencodebench_task_source="user"
+    opencodebench_orchestration_mode="none"
+    ;;
+  hermes)
+    opencodebench_harness_mode="delegated"
+    opencodebench_task_source="hermes_orchestrator"
+    opencodebench_orchestration_mode="delegated_worker"
+    ;;
+  unknown)
+    opencodebench_harness_mode="direct"
+    opencodebench_task_source="user"
+    opencodebench_orchestration_mode="unknown"
+    ;;
+  *)
+    print -u2 "Error: invalid OPENCODEBENCH_UPSTREAM_ORCHESTRATOR: $upstream_orchestrator"
+    print -u2 "Allowed values: unset, none, hermes, unknown."
+    exit 1
+    ;;
+esac
+
+opencode_bin="${OPENCODEBENCH_OPENCODE_BIN:-}"
+if [[ -z "$opencode_bin" ]]; then
+  if command -v opencode >/dev/null 2>&1; then
+    opencode_bin="$(command -v opencode)"
+  else
+    print -u2 "Error: opencode CLI not found in PATH."
+    exit 127
+  fi
+fi
+
+opencode_bin="${opencode_bin:A}"
+
+if [[ ! -x "$opencode_bin" ]]; then
+  print -u2 "Error: resolved OpenCode binary is not executable: $opencode_bin"
+  exit 127
+fi
+
+case "$opencode_bin" in
+  "$wrapper_path"|"$script_dir/opencodebench-opencode"|"$script_dir/opencode-bench.sh"|*"OpenCodeBench.app"*)
+    print -u2 "Error: resolved OpenCode binary points to an OpenCodeBench wrapper instead of the real OpenCode CLI: $opencode_bin"
+    exit 127
+    ;;
+esac
+
+task_dir=$(
+  HARNESS=opencode \
+  HARNESS_MODE="$opencodebench_harness_mode" \
+  TRACKING_HARNESS=opencodebench \
+  EXECUTION_AGENT=opencode \
+  UPSTREAM_ORCHESTRATOR="$upstream_orchestrator" \
+  TASK_SOURCE="$opencodebench_task_source" \
+  ORCHESTRATION_MODE="$opencodebench_orchestration_mode" \
+  AGENT_COMMAND_LABEL=opencodebench-opencode \
+  REPO_DETECTION_METHOD=cwd_git_root \
+  WORKING_DIRECTORY="$working_directory" \
+  LAUNCHER_USED=OpenCodeBench \
+  OPENCODE_EXECUTABLE_PATH="$opencode_bin" \
+  MODEL="${OPENCODE_MODEL:-unknown}" \
+  "$script_dir/capture-task-start.sh" "$repo_root"
+)
+
+metadata_path="$task_dir/metadata.json"
+opencodebench_session_id="$(basename "$task_dir")"
+opencodebench_project_id="$(jq -r '.opencodebench.project_id // (.repo_path | split("/")[-1]) // "unknown"' "$metadata_path")"
+opencodebench_repo_root="$(jq -r '.opencodebench.repo_root // .repo_path // empty' "$metadata_path")"
+opencodebench_task_dir="$(jq -r '.opencodebench.task_dir // empty' "$metadata_path")"
+opencodebench_git_commit_before="$(jq -r '.opencodebench.git_commit_before // .git_head_before // .git_commit // empty' "$metadata_path")"
+
+if [[ -z "$opencodebench_git_commit_before" ]]; then
+  opencodebench_git_commit_before="$(git -C "$opencodebench_repo_root" rev-parse HEAD 2>/dev/null || true)"
+fi
+
+export OPENCODEBENCH_SESSION_ID="$opencodebench_session_id"
+export OPENCODEBENCH_PROJECT_ID="$opencodebench_project_id"
+export OPENCODEBENCH_REPO_ROOT="$opencodebench_repo_root"
+export OPENCODEBENCH_TASK_DIR="$opencodebench_task_dir"
+export OPENCODEBENCH_GIT_COMMIT_BEFORE="$opencodebench_git_commit_before"
+
+otel_escape_value() {
+  jq -rn --arg value "$1" '$value | @uri'
+}
+
+opencodebench_otel_attributes="$(
+  printf 'opencodebench.session_id=%s,opencodebench.project_id=%s,opencodebench.repo_root=%s,opencodebench.task_dir=%s,opencodebench.git_commit_before=%s' \
+    "$(otel_escape_value "$OPENCODEBENCH_SESSION_ID")" \
+    "$(otel_escape_value "$OPENCODEBENCH_PROJECT_ID")" \
+    "$(otel_escape_value "$OPENCODEBENCH_REPO_ROOT")" \
+    "$(otel_escape_value "$OPENCODEBENCH_TASK_DIR")" \
+    "$(otel_escape_value "$OPENCODEBENCH_GIT_COMMIT_BEFORE")"
+)"
+
+if [[ -n "${OTEL_RESOURCE_ATTRIBUTES:-}" ]]; then
+  export OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES},${opencodebench_otel_attributes}"
+else
+  export OTEL_RESOURCE_ATTRIBUTES="$opencodebench_otel_attributes"
+fi
+
+opencode_exit_code=0
+finished=0
+finish_capture() {
+  if [[ "$finished" -eq 0 ]]; then
+    finished=1
+    "$script_dir/capture-task-finish.sh" "$task_dir" "$opencode_exit_code" >/dev/null || true
+    print -r -- "OpenCodeBench task log directory: $task_dir"
+  fi
+}
+trap finish_capture EXIT
+
+# Stage 1 Hermes-hostile-env workaround:
+# In terminals where Hermes has inherited OPENCODE_SERVER_PASSWORD /
+# OPENCODE_SERVER_USERNAME, plain `opencode run ...` fails with
+# `Error: Session not found` because those vars make a fresh opencode
+# invocation try to authenticate against a (non-existent) local server.
+# Strip them for non-attach invocations. Preserve them for `attach` so
+# users can still connect to a running opencode server with basic auth.
+# Never echo the values.
+opencode_subcommand=""
+for arg in "$@"; do
+  case "$arg" in
+    --*=*|-*) continue ;;
+  esac
+  opencode_subcommand="$arg"
+  break
+done
+
+if [[ "$opencode_subcommand" != "attach" ]]; then
+  unset OPENCODE_SERVER_PASSWORD OPENCODE_SERVER_USERNAME
+fi
+
+set +e
+cd "$repo_root"
+"$opencode_bin" "$@"
+opencode_exit_code=$?
+set -e
+
+exit "$opencode_exit_code"
