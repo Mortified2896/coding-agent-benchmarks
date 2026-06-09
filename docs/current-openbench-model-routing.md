@@ -1,51 +1,80 @@
-# Current OpenCodeBench Model Routing
+# Current OpenCode Model Routing Policy
 
-This is the current temporary model-routing policy for OpenCodeBench implementation work.
+This is the current working model-routing policy for Hermes delegating coding work to OpenCode in this project.
 
-It is based on the currently visible free/OpenCode-accessible models available through the local OpenCode installation. It should be updated after we collect real traces from actual OpenCodeBench runs.
+It is not a benchmark conclusion. It should be updated after enough real OpenCodeBench traces have been collected.
 
-These model names are passed to the real OpenCode CLI via the `-m` flag of the `opencodebench-opencode` wrapper (see `README.md` → "Recommended usage"). The wrapper itself does not choose a model; it only records the chosen one in `metadata.json` as `model_id`.
+Hermes main-brain/orchestrator model selection is intentionally not covered here. The user chooses the Hermes model manually. This file only covers which worker model Hermes should ask OpenCode to use.
 
-This document is not claiming these models are objectively best. Treat this as a working routing policy, not a benchmark conclusion.
-
-## Current free/OpenCode-accessible models
-
-- `opencode/big-pickle`
-- `opencode/deepseek-v4-flash-free`
-- `opencode/mimo-v2.5-free`
-- `opencode/nemotron-3-ultra-free`
-
-## Temporary routing policy
-
-### Default implementation model
+## Default Worker
 
 - `opencode/deepseek-v4-flash-free`
+- Use for:
+  - routine implementation
+  - bug fixes
+  - wrapper changes
+  - shell/script work
+  - validation fixes
+  - small refactors
 
-Use for shell/script implementation, wrapper code, debugging, validation fixes, argument passthrough, and exit-code handling.
+## First Escalation
 
-### Planning/review/security/privacy/schema model
+- `openai/gpt-5.5`
+- Use when:
+  - DeepSeek fails or confidence is low
+  - requirements are ambiguous
+  - code quality is questionable
+  - implementation spans multiple files
+  - higher confidence is desired
 
-- `opencode/nemotron-3-ultra-free`
+## Second Escalation
 
-Use for metadata schema decisions, privacy/logging review, repo-wide design checks, and final review before commit.
+- `minimax-coding-plan/MiniMax-M3`
+- Use when:
+  - GPT-5.5 did not resolve the issue
+  - an independent reasoning engine is valuable
+  - architecture or debugging benefits from a second opinion
+  - recovering interrupted or partially completed work
+  - comparing alternative implementation approaches
 
-### Docs/cleanup/simple-task model
+## Final Escalation
+
+- `openai/gpt-5.5`
+- Use with a higher reasoning setting if supported by the current OpenCode/OpenAI integration.
+- Use when:
+  - architecture decisions are involved
+  - debugging is difficult or prolonged
+  - security/privacy-sensitive code is affected
+  - tracking infrastructure is being modified
+  - failure would be expensive
+
+## Supporting Models
 
 - `opencode/mimo-v2.5-free`
+  - diagnostics
+  - summaries
+  - validation-output condensation
+  - docs cleanup
 
-Use for README/docs cleanup, small refactors, simple test scaffolding, and summarizing validation output.
+- `opencode/nemotron-3-ultra-free`
+  - privacy review
+  - metadata review
+  - schema review
+  - pre-commit review
 
-### Experimental/fallback model
+- `opencode/north-mini-code-free`
+  - small isolated tasks
+  - secondary implementation attempts
+  - quick code checks
 
 - `opencode/big-pickle`
+  - experimental fallback
+  - low-risk investigations
 
-Use only for low-risk sanity checks or fallback until real traces are available.
+## Operating Rules
 
-## Rules
-
-- Do not switch models mid-task unless there is a clear reason.
-- Use DeepSeek for the main implementation patch.
-- Use Nemotron for review before committing privacy/logging/metadata changes.
-- Use MiMo only for low-risk docs/cleanup.
-- Record which model was used in the implementation summary if practical.
-- Treat this as a routing policy, not a benchmark conclusion.
+- For coding tasks in this repo, Hermes should normally delegate implementation through `opencodebench-opencode`.
+- Use `--dir <target-repo>` for tracked OpenCode work.
+- Follow this routing policy unless there is a clear reason to deviate.
+- If another model or reasoning configuration appears better suited for a task, suggest it first and ask for user approval before deviating.
+- Record the actual worker model used in task reports until OpenCodeBench captures the model automatically in metadata.
