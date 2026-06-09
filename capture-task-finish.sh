@@ -58,12 +58,66 @@ diff_numstat_path="$task_dir/git-diff-numstat.txt"
 diff_patch_path="$task_dir/git-diff.patch"
 summary_path="$task_dir/summary.md"
 
-git -C "$repo" status --short > "$status_after_path"
-git -C "$repo" diff --stat > "$diff_stat_path"
-git -C "$repo" diff --numstat > "$diff_numstat_path"
-git -C "$repo" diff > "$diff_patch_path"
-git_status_after=$(git -C "$repo" status --short)
-git_diff_summary=$(git -C "$repo" diff --stat)
+git -C "$repo" status --short > "$status_after_path" 2>/dev/null || true
+git -C "$repo" diff --stat > "$diff_stat_path" 2>/dev/null || true
+git -C "$repo" diff --numstat > "$diff_numstat_path" 2>/dev/null || true
+git -C "$repo" diff > "$diff_patch_path" 2>/dev/null || true
+git_status_after=$(git -C "$repo" status --short 2>/dev/null || true)
+git_diff_summary=$(git -C "$repo" diff --stat 2>/dev/null || true)
+git_numstat_body=$(git -C "$repo" diff --numstat 2>/dev/null || true)
+git_name_only_body=$(git -C "$repo" diff --name-only 2>/dev/null || true)
+git_is_repo="true"
+if ! git -C "$repo" rev-parse --show-toplevel >/dev/null 2>&1; then
+  git_is_repo="false"
+fi
+
+# Stage 2 Card 4: diff-size summary.
+# files_changed = count of names in `git diff --name-only`.
+# lines_added / lines_deleted = sum of the +/- columns from
+#   `git diff --numstat`. Binary files print "- -" (dash) for both
+#   columns; treat as 0 (binary files do not contribute line counts).
+# working_tree_dirty_after = true iff `git status --porcelain` is non-empty
+#   (covers both tracked modifications AND untracked files).
+# diff_produced = true iff files_changed > 0.
+# Non-Git repo: files_changed=0, lines_added=0, lines_deleted=0,
+#   working_tree_dirty_after=null, diff_produced=false, diff_is_git_repo=false.
+# We still want the sidecar files (git-status-after.txt, etc.) to be
+# present even if empty so the layout is uniform across all tasks.
+if [[ "$git_is_repo" == "true" ]]; then
+  files_changed=$(printf '%s' "$git_name_only_body" | awk 'NF{c++} END{print c+0}')
+  # Parse numstat: <added>\t<deleted>\t<path>. "-" means binary
+  # (or rename copy, but in --numstat those still produce numbers).
+  line_totals=$(printf '%s' "$git_numstat_body" | awk -F'\t' '
+    NF < 2 { next }
+    {
+      a = ($1 == "-" ? 0 : $1 + 0)
+      d = ($2 == "-" ? 0 : $2 + 0)
+      add += a
+      del += d
+    }
+    END { printf "%d %d", add+0, del+0 }
+  ')
+  lines_added=${line_totals%% *}
+  lines_deleted=${line_totals##* }
+  if [[ -n "$git_status_after" ]]; then
+    working_tree_dirty_after="true"
+  else
+    working_tree_dirty_after="false"
+  fi
+  if [[ "$files_changed" -gt 0 ]]; then
+    diff_produced="true"
+  else
+    diff_produced="false"
+  fi
+  diff_is_git_repo="true"
+else
+  files_changed=0
+  lines_added=0
+  lines_deleted=0
+  working_tree_dirty_after="null"
+  diff_produced="false"
+  diff_is_git_repo="false"
+fi
 
 tmp_metadata=$(mktemp)
 jq \
@@ -81,6 +135,12 @@ jq \
   --arg git_diff_patch_path "$diff_patch_path" \
   --arg git_diff_stat_path "$diff_stat_path" \
   --arg git_diff_numstat_path "$diff_numstat_path" \
+  --argjson files_changed "$files_changed" \
+  --argjson lines_added "$lines_added" \
+  --argjson lines_deleted "$lines_deleted" \
+  --argjson working_tree_dirty_after "$working_tree_dirty_after" \
+  --argjson diff_produced "$diff_produced" \
+  --argjson diff_is_git_repo "$diff_is_git_repo" \
   '. + {
     timestamp_end: $timestamp_end,
     session_finish_time: $session_finish_time,
@@ -88,6 +148,12 @@ jq \
     duration_seconds: $duration_seconds,
     exit_code: (if $exit_code == "" then null else ($exit_code | tonumber? // $exit_code) end),
     agent_exit_code: $agent_exit_code,
+    files_changed: $files_changed,
+    lines_added: $lines_added,
+    lines_deleted: $lines_deleted,
+    working_tree_dirty_after: $working_tree_dirty_after,
+    diff_produced: $diff_produced,
+    diff_is_git_repo: $diff_is_git_repo,
     final_git_status: $final_git_status,
     final_git_diff_summary: $final_git_diff_summary,
     git_status_short_after_path: $git_status_short_after_path,
@@ -98,6 +164,16 @@ jq \
    | .opencodebench.timing += {
        finish_unix_seconds: $finish_unix_seconds,
        duration_seconds: $duration_seconds
+     }
+   | .opencodebench += {
+       diff_summary: {
+         files_changed: $files_changed,
+         lines_added: $lines_added,
+         lines_deleted: $lines_deleted,
+         working_tree_dirty_after: $working_tree_dirty_after,
+         diff_produced: $diff_produced,
+         is_git_repo: $diff_is_git_repo
+       }
      }' \
   "$metadata_path" > "$tmp_metadata"
 mv "$tmp_metadata" "$metadata_path"
@@ -121,6 +197,15 @@ mv "$tmp_metadata" "$metadata_path"
   fi
   print -r -- "- Diff stat: \`git-diff-stat.txt\`"
   print -r -- "- Diff patch: \`git-diff.patch\`"
+  if [[ "$diff_is_git_repo" == "true" ]]; then
+    print -r -- "- Files changed: \`$files_changed\`"
+    print -r -- "- Lines added: \`$lines_added\`"
+    print -r -- "- Lines deleted: \`$lines_deleted\`"
+    print -r -- "- Working tree dirty after: \`$working_tree_dirty_after\`"
+    print -r -- "- Diff produced: \`$diff_produced\`"
+  else
+    print -r -- "- Diff summary: \`(non-Git repo, all fields null)\`"
+  fi
 } > "$summary_path"
 
 print -r -- "$task_dir"
