@@ -3,13 +3,59 @@ set -euo pipefail
 
 script_dir="${0:A:h}"
 wrapper_path="${0:A}"
-working_directory="$PWD"
 
-if ! git -C "$working_directory" rev-parse --show-toplevel >/dev/null 2>&1; then
-  print -u2 "Error: opencodebench-opencode must be run from inside an existing Git repository."
-  print -u2 "Checked working directory: $working_directory"
-  print -u2 "Stage 1 tracks existing Git repositories only; it will not run git init or select a configured project."
-  exit 1
+# Stage 1 supports two repo-detection modes:
+#   - cwd_git_root:  no --dir flag, detect from wrapper's PWD
+#   - opencode_dir_git_root: --dir <path> flag, use the resolved
+#     target directory as the repo detection base
+# This lets Hermes (or any caller) launch the wrapper from one
+# directory and target a different repo with --dir. --dir is passed
+# through to the real opencode binary unchanged.
+# Walk args properly: track whether the previous arg was --dir, and
+# use the LAST --dir value (matches typical CLI semantics).
+target_dir_arg=""
+prev_was_dir=0
+for arg in "$@"; do
+  if [[ "$prev_was_dir" -eq 1 ]]; then
+    target_dir_arg="$arg"
+    prev_was_dir=0
+    continue
+  fi
+  case "$arg" in
+    --dir) prev_was_dir=1 ;;
+    --dir=*) target_dir_arg="${arg#--dir=}" ;;
+  esac
+done
+
+if [[ -n "$target_dir_arg" ]]; then
+  if [[ "$target_dir_arg" == /* ]]; then
+    resolved_target_dir="$target_dir_arg"
+  else
+    resolved_target_dir="$PWD/$target_dir_arg"
+  fi
+  resolved_target_dir="${resolved_target_dir:A}"
+  if [[ ! -d "$resolved_target_dir" ]]; then
+    print -u2 "Error: --dir target is not an existing directory: $target_dir_arg"
+    print -u2 "Resolved path: $resolved_target_dir"
+    exit 1
+  fi
+  if ! git -C "$resolved_target_dir" rev-parse --show-toplevel >/dev/null 2>&1; then
+    print -u2 "Error: --dir target is not inside a Git repository: $resolved_target_dir"
+    print -u2 "Stage 1 tracks existing Git repositories only; it will not run git init or select a configured project."
+    exit 1
+  fi
+  working_directory="$resolved_target_dir"
+  repo_detection_method="opencode_dir_git_root"
+else
+  working_directory="$PWD"
+  repo_detection_method="cwd_git_root"
+  if ! git -C "$working_directory" rev-parse --show-toplevel >/dev/null 2>&1; then
+    print -u2 "Error: opencodebench-opencode must be run from inside an existing Git repository."
+    print -u2 "Checked working directory: $working_directory"
+    print -u2 "(Or pass --dir <path> to target an existing Git repository from outside one.)"
+    print -u2 "Stage 1 tracks existing Git repositories only; it will not run git init or select a configured project."
+    exit 1
+  fi
 fi
 
 repo_root="$(git -C "$working_directory" rev-parse --show-toplevel)"
@@ -72,7 +118,7 @@ task_dir=$(
   TASK_SOURCE="$opencodebench_task_source" \
   ORCHESTRATION_MODE="$opencodebench_orchestration_mode" \
   AGENT_COMMAND_LABEL=opencodebench-opencode \
-  REPO_DETECTION_METHOD=cwd_git_root \
+  REPO_DETECTION_METHOD="$repo_detection_method" \
   WORKING_DIRECTORY="$working_directory" \
   LAUNCHER_USED=OpenCodeBench \
   OPENCODE_EXECUTABLE_PATH="$opencode_bin" \
@@ -148,9 +194,28 @@ if [[ "$opencode_subcommand" != "attach" ]]; then
   unset OPENCODE_SERVER_PASSWORD OPENCODE_SERVER_USERNAME
 fi
 
+# Rewrite --dir args to the resolved absolute path so that opencode's
+# own runtime chdir (which is relative to the resolved repo_root, not
+# the caller's original PWD) lands in the same place the wrapper
+# already resolved. All other args are passed through unchanged.
+opencode_args=()
+prev_was_dir=0
+for arg in "$@"; do
+  if [[ "$prev_was_dir" -eq 1 ]]; then
+    opencode_args+=("$resolved_target_dir")
+    prev_was_dir=0
+    continue
+  fi
+  case "$arg" in
+    --dir) opencode_args+=("--dir"); prev_was_dir=1 ;;
+    --dir=*) opencode_args+=("--dir=$resolved_target_dir") ;;
+    *) opencode_args+=("$arg") ;;
+  esac
+done
+
 set +e
 cd "$repo_root"
-"$opencode_bin" "$@"
+"$opencode_bin" "${opencode_args[@]}"
 opencode_exit_code=$?
 set -e
 
