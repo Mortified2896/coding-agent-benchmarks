@@ -4,6 +4,8 @@ This is the current temporary model-routing policy for OpenCodeBench implementat
 
 It is based on the currently visible free/OpenCode-accessible models available through the local OpenCode installation. It should be updated after we collect real traces from actual OpenCodeBench runs.
 
+These model names are passed to the real OpenCode CLI via the `-m` flag of the `opencodebench-opencode` wrapper (see `README.md` → "Recommended usage"). The wrapper itself does not choose a model; it only records the chosen one in `metadata.json` as `model_id`.
+
 This document is not claiming these models are objectively best. Treat this as a working routing policy, not a benchmark conclusion.
 
 ## Current free/OpenCode-accessible models

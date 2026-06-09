@@ -1,64 +1,198 @@
-# Coding Agent Benchmarks
+# OpenCodeBench
 
-Lightweight local capture tooling for OpenCodeBench sessions.
+Lightweight local capture tooling for OpenCode execution.
 
-OpenCodeBench launches a selected coding-agent harness from a Git repository root, records pre-run Git metadata, injects `opencodebench.*` OpenTelemetry resource attributes, waits for the harness to exit, and then records the final Git status and diff.
+OpenCodeBench launches a selected coding-agent CLI from a Git repository, records
+pre-run Git metadata, appends `opencodebench.*` attributes to
+`OTEL_RESOURCE_ATTRIBUTES`, waits for the CLI to exit, then records the final
+Git status and diff.
 
 It does not modify, alias, or bundle OpenCode or Hermes.
 
-## Install
+## Stage 1 scope
+
+Stage 1 is a narrow proof slice: **it tracks OpenCode execution only**.
+
+In scope (Stage 1):
+
+- Tracking direct, user-driven `opencode run` invocations.
+- Tracking Hermes-delegated `opencode run` invocations (Hermes as the upstream
+  orchestrator, OpenCode as the worker).
+
+Out of scope for Stage 1 (intentionally not implemented):
+
+- A UI, dashboard, or comparison view.
+- Export features or case-reconstruction tooling.
+- A Desktop app launcher or manual repository attach flow.
+- An `active-sessions.json` or other live session registry.
+- Background watchers or generated-project detection.
+- Pi, Hermes-as-orchestrator, Codex, or generic-agent dispatcher wrappers.
+- A global `PATH` shim that shadows `opencode`.
+
+Future stages may generalize the same tracking model to those surfaces, but
+Stage 1 is intentionally narrow so the capture contract is stable before
+broader wrappers are added.
+
+## Tracked command
+
+Use `opencodebench-opencode` for any tracked OpenCode work. Raw `opencode`
+invocations remain untracked.
+
+| Call form | Tracked? | Notes |
+| --- | --- | --- |
+| `opencode ...` | no | Use only for ad-hoc non-tracked use. |
+| `opencodebench-opencode ...` | yes | The Stage 1 wrapper. |
+
+Hermes should call `opencodebench-opencode` whenever it wants its OpenCode
+worker execution to appear in an OpenCodeBench session log.
+
+## Recommended usage
+
+For a tracked OpenCode run targeted at a specific repository, prefer
+`--dir` so the wrapper records the target repo, not the launch directory:
 
 ```sh
-./install-opencodebench-macos.sh
-mkdir -p ~/.config/opencodebench
-cp config/config.env.example ~/.config/opencodebench/config.env
+/Users/Jo/GitHub/coding-agent-benchmarks/opencodebench-opencode \
+  run --dir /path/to/target-repo \
+  -m opencode/mimo-v2.5-free \
+  'Reply exactly OK and do not edit files.'
 ```
 
-Edit `~/.config/opencodebench/config.env` if you want the macOS launcher to open a default repository. The Desktop app is the recommended launcher for tracked runs because it starts a fresh captured session from the configured repository root.
-
-## Run
-
-From inside any target repository:
+For implementation-style work, use a free implementation-tuned model:
 
 ```sh
-./opencode-bench.sh
+/Users/Jo/GitHub/coding-agent-benchmarks/opencodebench-opencode \
+  run --dir /path/to/target-repo \
+  -m opencode/deepseek-v4-flash-free \
+  'Implement the change described in the prompt.'
 ```
 
-Or set the repo explicitly:
+You can omit `--dir` and run from inside the target repo; the wrapper will
+detect the repo from the current working directory. See "Repo detection" below
+for the exact rules.
+
+Simulated Hermes-delegated run (for tests and for documentation examples):
 
 ```sh
-OPENCODEBENCH_REPO="/path/to/repo" ./opencode-bench.sh
+OPENCODEBENCH_UPSTREAM_ORCHESTRATOR=hermes \
+  /Users/Jo/GitHub/coding-agent-benchmarks/opencodebench-opencode \
+  run --dir /path/to/target-repo \
+  -m opencode/mimo-v2.5-free \
+  'Reply exactly OK and do not edit files.'
 ```
 
-The macOS app launcher reads `~/.config/opencodebench/config.env`, resolves `OPENCODEBENCH_REPO` or `OPENCODEBENCH_DEFAULT_REPO` to its Git root, changes into that root, and runs the installed wrapper from `~/.local/share/opencodebench`.
+## Repo detection
 
-The supported harnesses are OpenCode direct and Hermes orchestrating OpenCode.
+The wrapper supports two repo-detection modes and records the chosen one in
+`metadata.json` as `repo_detection_method`:
 
-OpenCode direct:
+| Mode | When | Behavior |
+| --- | --- | --- |
+| `cwd_git_root` | No `--dir` flag | The wrapper uses the Git repo of its own current working directory. |
+| `opencode_dir_git_root` | `--dir <path>` or `--dir=<path>` | The wrapper resolves that path, treats it as the repo-detection base, and walks up to its Git root. |
+
+Rules:
+
+- `--dir` is the preferred form for Hermes-driven calls and any cross-repo
+  invocation. It removes the ambiguity of "which repo did the wrapper actually
+  record?".
+- Launching from outside any Git repository is allowed, as long as `--dir`
+  points to an existing Git repository.
+- If no `--dir` is present and the wrapper's current working directory is not
+  inside a Git repository, the wrapper fails with a clear error before
+  launching OpenCode.
+- If `--dir` points at a path that does not exist or is not inside a Git
+  repository, the wrapper fails with a clear error before launching OpenCode.
+- The wrapper never runs `git init` and never selects a configured project on
+  the user's behalf. It only tracks an already-existing Git repository.
+
+When multiple `--dir` flags are present, the wrapper uses the last value
+(matches typical CLI semantics). The wrapper rewrites a relative `--dir` to
+its resolved absolute path before invoking OpenCode, so OpenCode's own
+runtime `chdir` lands in the same place the wrapper validated.
+
+## Environment caveat
+
+A known issue on hosts where the Hermes shell inherits OpenCode server
+environment variables: plain `opencode run ...` can fail with
+`Error: Session not found` when the following are set:
+
+- `OPENCODE_SERVER_PASSWORD`
+- `OPENCODE_SERVER_USERNAME`
+
+The wrapper handles this without exposing the values:
+
+- For local non-attach runs (`opencode run ...`, `opencode [project]`, etc.)
+  the wrapper unsets both variables in the child environment only. The parent
+  shell is unaffected.
+- For `opencode attach <url> ...` runs the wrapper preserves both variables
+  so the user can still authenticate to a running OpenCode server.
+- The wrapper never echoes or writes the values anywhere. Captured logs
+  contain only the values that OpenCode and the harness themselves surface.
+
+Raw `opencode` invocations (not run through the wrapper) still need the
+workaround:
 
 ```sh
-OPENCODEBENCH_HARNESS=opencode
-OPENCODEBENCH_HARNESS_MODE=direct
-OPENCODEBENCH_AGENT_COMMAND_LABEL=opencode-direct
-OPENCODEBENCH_TASK_SOURCE=desktop_app
+env -u OPENCODE_SERVER_PASSWORD -u OPENCODE_SERVER_USERNAME \
+  opencode run -m opencode/mimo-v2.5-free 'Reply exactly OK and do not edit files.'
 ```
 
-Hermes orchestrating OpenCode:
+## Metadata
 
-```sh
-OPENCODEBENCH_HARNESS=hermes
-OPENCODEBENCH_HARNESS_MODE=orchestrating-opencode
-OPENCODEBENCH_DOWNSTREAM_AGENT=opencode
-OPENCODEBENCH_HERMES_MEMORY_MODE=on
-OPENCODEBENCH_AGENT_COMMAND_LABEL=hermes-orchestrating-opencode
-OPENCODEBENCH_TASK_SOURCE=desktop_app
-```
+The wrapper writes a `metadata.json` per session and appends `opencodebench.*`
+attributes to `OTEL_RESOURCE_ATTRIBUTES` for the launched harness process.
 
-For Hermes orchestration, Hermes is treated as the main harness. OpenCode is recorded as `downstream_agent=opencode`; the wrapper does not directly observe a downstream OpenCode exit code yet. Hermes memory stays on by default. Memory-off benchmarking is intentionally not implemented yet.
+Additive fields recorded by the wrapper (Stage 1):
+
+- `tracking_harness` — always `opencodebench` for wrapper-driven runs.
+- `execution_agent` — the agent that actually ran, e.g. `opencode`.
+- `upstream_orchestrator` — who invoked the wrapper, e.g. `none` or `hermes`.
+- `orchestration_mode` — derived from the upstream orchestrator.
+- `repo_detection_method` — `cwd_git_root` or `opencode_dir_git_root`.
+- `working_directory` — the resolved directory used for repo detection.
+- `git_root` — the Git root of the tracked repo.
+
+Direct user run (default values):
+
+| Field | Value |
+| --- | --- |
+| `harness` | `opencode` |
+| `harness_mode` | `direct` |
+| `upstream_orchestrator` | `none` |
+| `task_source` | `user` |
+| `orchestration_mode` | `none` |
+
+Hermes-delegated run (when `OPENCODEBENCH_UPSTREAM_ORCHESTRATOR=hermes`):
+
+| Field | Value |
+| --- | --- |
+| `harness` | `opencode` |
+| `harness_mode` | `delegated` |
+| `upstream_orchestrator` | `hermes` |
+| `task_source` | `hermes_orchestrator` |
+| `orchestration_mode` | `delegated_worker` |
+
+See `docs/task-capture-wrapper.md` for the full metadata schema, the list of
+captured files per session, and the OpenTelemetry attribute names.
+
+## Privacy boundaries
+
+Stage 1 captures Git state, diffs, and explicit metadata for the target
+repository only. The wrapper does **not** capture:
+
+- Raw Hermes memory, transcripts, profile data, configs, or auth files.
+- `SOUL.md`, `MEMORY.md`, `USER.md`, `~/.hermes/config.yaml`, or `~/.hermes/.env`.
+- OpenCode session transcripts or auth files.
+- Full private remote URLs (only the local path is captured).
+
+Captured log files may still contain prompts, diffs, metadata, local paths,
+and filenames, so keep them ignored and private. The wrapper refuses to write
+logs into a non-gitignored path inside a Git repository.
 
 ## Logs
 
-By default task logs are written under the detected OpenCodeBench project
+By default, task logs are written under the detected OpenCodeBench project
 checkout's local ignored log directory:
 
 ```text
@@ -66,59 +200,25 @@ checkout's local ignored log directory:
 ```
 
 If the scripts are run from an installed or copied location where no
-OpenCodeBench checkout can be detected, logs fall back to the user state
-directory:
+OpenCodeBench checkout can be detected, logs fall back to:
 
 ```text
 ${XDG_STATE_HOME:-$HOME/.local/state}/opencodebench/coding-agent-task-logs/YYYY/MM/<task_id>/
 ```
 
-Set `OPENCODEBENCH_LOG_ROOT` only if you explicitly want logs somewhere else.
-If that path is inside a Git repository, it must be gitignored. OpenCodeBench
-refuses unsafe non-ignored Git log roots because logs may contain prompts,
-diffs, metadata, local paths, and filenames.
+Set `OPENCODEBENCH_LOG_ROOT` only if you explicitly want logs somewhere
+else. If that path is inside a Git repository, it must be gitignored.
 
-Start capture writes:
+## Model routing
 
-- `metadata.json`
-- `task.md`
-- `git-head-before.txt`
-- `git-branch-before.txt`
-- `git-status-before.txt`
-- `git-diff-before.patch`
-- `git-diff-stat-before.txt`
-- `git-diff-numstat-before.txt`
+`docs/current-openbench-model-routing.md` lists the free OpenCode-accessible
+models used for the current implementation work and the routing policy
+applied to them. It is a working orientation sheet, not a benchmark
+conclusion, and should be revised after real traces are collected.
 
-Finish capture writes:
+## Install
 
-- `git-status-after.txt`
-- `git-diff-stat.txt`
-- `git-diff-numstat.txt`
-- `git-diff.patch`
-- `summary.md`
-
-`metadata.json` preserves the original OpenCode fields and also records generic harness metadata:
-
-- `harness`
-- `harness_mode`
-- `task_source`
-- `agent_command_label`
-- `agent_exit_code`
-- `downstream_agent`
-- `downstream_agent_mode`
-
-For OpenCode runs, `agent_exit_code` matches the existing `opencode_exit_code` field.
-
-For Hermes runs, `agent_exit_code` matches `hermes_exit_code`. Hermes metadata includes available safe fields such as `hermes_executable_path`, `hermes_version`, `hermes_profile`, `hermes_memory_mode`, `hermes_memory_enabled`, and `hermes_user_profile_enabled`. OpenCodeBench does not capture raw Hermes memory, profile, config, session transcript, auth, env, or log contents.
-
-## Telemetry Metadata
-
-The wrappers append these fields to `OTEL_RESOURCE_ATTRIBUTES`:
-
-- `opencodebench.session_id`
-- `opencodebench.project_id`
-- `opencodebench.repo_root`
-- `opencodebench.task_dir`
-- `opencodebench.git_commit_before`
-
-The same values are also exported as `OPENCODEBENCH_*` environment variables for the launched harness process.
+Stage 1 does not require an install step. The wrapper, capture scripts, and
+documentation are used directly from the project checkout. The `Desktop app`
+and macOS launcher described in earlier revisions of this README are
+intentionally not part of Stage 1.
