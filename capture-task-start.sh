@@ -80,6 +80,12 @@ script_dir="${0:A:h}"
 git_root=$(git -C "$repo" rev-parse --show-toplevel)
 timestamp_start=$(date -u +%Y-%m-%dT%H-%M-%SZ)
 session_start_time="$timestamp_start"
+# Stage 2: cleaner start-time field. Use date +%s.%N for sub-second
+# precision (supported on macOS and Linux) so duration_seconds in
+# capture-task-finish.sh is accurate, not just integer seconds. The
+# .%N fractional component is parsed as a decimal in capture-task-finish.sh.
+start_unix_seconds=$(date -u +%s.%N)
+start_time="$timestamp_start"
 harness="${HARNESS:-opencode}"
 harness_mode="${HARNESS_MODE:-${OPENCODEBENCH_HARNESS_MODE:-direct}}"
 task_source="${TASK_SOURCE:-${OPENCODEBENCH_TASK_SOURCE:-manual}}"
@@ -123,6 +129,11 @@ if [[ -n "${OPENCODEBENCH_LOG_ROOT:-}" ]]; then
 fi
 opencodebench_task_dir="$task_dir"
 opencodebench_git_commit_before="$git_head_before"
+# Stage 2: nest timing fields under opencodebench.timing so the top-level
+# metadata.json keeps the Stage 1 additive shape. start_unix_seconds is a
+# number (--argjson) so duration_seconds in capture-task-finish.sh can do
+# numeric subtraction without parsing a stringified float.
+opencodebench_start_unix_seconds="$start_unix_seconds"
 
 mkdir -p "$task_dir"
 
@@ -149,6 +160,8 @@ jq -n \
   --arg timestamp "$timestamp_start" \
   --arg timestamp_start "$timestamp_start" \
   --arg session_start_time "$session_start_time" \
+  --arg start_time "$start_time" \
+  --argjson opencodebench_start_unix_seconds "$opencodebench_start_unix_seconds" \
   --arg harness "$harness" \
   --arg harness_mode "$harness_mode" \
   --arg task_source "$task_source" \
@@ -191,6 +204,7 @@ jq -n \
     timestamp: $timestamp,
     timestamp_start: $timestamp_start,
     session_start_time: $session_start_time,
+    start_time: $start_time,
     harness: $harness,
     harness_mode: $harness_mode,
     task_source: $task_source,
@@ -235,7 +249,10 @@ jq -n \
       project_id: $opencodebench_project_id,
       repo_root: $opencodebench_repo_root,
       task_dir: $opencodebench_task_dir,
-      git_commit_before: $opencodebench_git_commit_before
+      git_commit_before: $opencodebench_git_commit_before,
+      timing: {
+        start_unix_seconds: $opencodebench_start_unix_seconds
+      }
     }
   }' > "$task_dir/metadata.json"
 
