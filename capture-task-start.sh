@@ -115,6 +115,83 @@ resolve_hermes_user_prompt() {
   return 0
 }
 
+# Stage 2.6: resolve Hermes orchestrator metadata from the WebUI session JSON.
+# This is the fallback resolver used when capture-task-start.sh is called
+# directly (without the wrapper). When called through opencodebench-opencode,
+# the wrapper pre-populates HERMES_ORCHESTRATOR_* env vars and this function
+# is skipped.
+resolve_hermes_orchestrator_metadata() {
+  if [[ "${OPENCODEBENCH_SKIP_HERMES_ORCHESTRATOR:-}" == "1" ]]; then
+    return 0
+  fi
+
+  local session_json=""
+  if [[ -n "${HERMES_WEBUI_STATE_DIR:-}" && -n "${HERMES_SESSION_ID:-}" ]]; then
+    session_json="${HERMES_WEBUI_STATE_DIR}/sessions/${HERMES_SESSION_ID}.json"
+  fi
+
+  if [[ -z "$session_json" || ! -f "$session_json" || ! -r "$session_json" ]]; then
+    local _has_hermes=0 _v
+    for _v in HERMES_SESSION_ID HERMES_HOME HERMES_WEBUI_STATE_DIR \
+              HERMES_KANBAN_BOARD HERMES_INTERACTIVE HERMES_PROFILE \
+              HERMES_SESSION_PLATFORM HERMES_SESSION_CHAT_ID; do
+      if [[ -n "${(P)_v:-}" ]]; then _has_hermes=1; break; fi
+    done
+    if [[ "$_has_hermes" -eq 1 ]]; then
+      hermes_orchestrator_capture_source="env"
+    fi
+    return 0
+  fi
+
+  local projection
+  projection=$(jq -c '{session_id, model, model_provider, profile, source_label,
+    session_source, raw_source, is_cli_session, workspace,
+    worktree_path, worktree_repo_root, worktree_branch, personality,
+    context_engine, compression_anchor_mode}' "$session_json" 2>/dev/null) || return 0
+
+  hermes_orchestrator_session_id=$(jq -r '.session_id // ""' <<<"$projection")
+  hermes_orchestrator_model=$(jq -r '.model // ""' <<<"$projection")
+  hermes_orchestrator_model_provider=$(jq -r '.model_provider // ""' <<<"$projection")
+  hermes_orchestrator_profile=$(jq -r '.profile // ""' <<<"$projection")
+
+  local sl ss rs
+  sl=$(jq -r '.source_label // ""' <<<"$projection")
+  ss=$(jq -r '.session_source // ""' <<<"$projection")
+  rs=$(jq -r '.raw_source // ""' <<<"$projection")
+  if [[ -n "$sl" && "$sl" != "null" ]]; then
+    hermes_orchestrator_source_label="$sl"
+  elif [[ -n "$ss" && "$ss" != "null" ]]; then
+    hermes_orchestrator_source_label="$ss"
+  elif [[ -n "$rs" && "$rs" != "null" ]]; then
+    hermes_orchestrator_source_label="$rs"
+  fi
+
+  hermes_orchestrator_is_cli_session=$(jq -r '.is_cli_session // false' <<<"$projection")
+  hermes_orchestrator_workspace=$(jq -r '.workspace // ""' <<<"$projection")
+  hermes_orchestrator_worktree_path=$(jq -r '.worktree_path // null' <<<"$projection")
+
+  local ce cam
+  ce=$(jq -r '.context_engine // ""' <<<"$projection")
+  cam=$(jq -r '.compression_anchor_mode // ""' <<<"$projection")
+  if [[ -n "$ce" && "$ce" != "null" ]]; then
+    hermes_orchestrator_reasoning_level="$ce"
+  elif [[ -n "$cam" && "$cam" != "null" ]]; then
+    hermes_orchestrator_reasoning_level="$cam"
+  fi
+
+  local _has_hermes=0 _v
+  for _v in HERMES_SESSION_ID HERMES_HOME HERMES_WEBUI_STATE_DIR \
+            HERMES_KANBAN_BOARD HERMES_INTERACTIVE HERMES_PROFILE \
+            HERMES_SESSION_PLATFORM HERMES_SESSION_CHAT_ID; do
+    if [[ -n "${(P)_v:-}" ]]; then _has_hermes=1; break; fi
+  done
+  if [[ "$_has_hermes" -eq 1 ]]; then
+    hermes_orchestrator_capture_source="env"
+  else
+    hermes_orchestrator_capture_source="session_json"
+  fi
+}
+
 default_log_root() {
   local script_dir="$1"
   local project_root
@@ -176,6 +253,24 @@ if [[ "${HERMES_INTERACTIVE:-}" == "1" ]]; then
 elif [[ "${HERMES_INTERACTIVE:-}" == "0" ]]; then
   hermes_interactive="false"
 fi
+# Stage 2.6: 11 hermes_orchestrator_* vars passed from the wrapper
+hermes_orchestrator_session_id="${HERMES_ORCHESTRATOR_SESSION_ID:-}"
+hermes_orchestrator_model="${HERMES_ORCHESTRATOR_MODEL:-}"
+hermes_orchestrator_model_provider="${HERMES_ORCHESTRATOR_MODEL_PROVIDER:-}"
+hermes_orchestrator_profile="${HERMES_ORCHESTRATOR_PROFILE:-}"
+hermes_orchestrator_source_label="${HERMES_ORCHESTRATOR_SOURCE_LABEL:-unavailable}"
+hermes_orchestrator_is_cli_session="${HERMES_ORCHESTRATOR_IS_CLI_SESSION:-false}"
+hermes_orchestrator_workspace="${HERMES_ORCHESTRATOR_WORKSPACE:-}"
+hermes_orchestrator_worktree_path="${HERMES_ORCHESTRATOR_WORKTREE_PATH:-null}"
+hermes_orchestrator_reasoning_level="${HERMES_ORCHESTRATOR_REASONING_LEVEL:-unavailable}"
+hermes_orchestrator_capture_source="${HERMES_ORCHESTRATOR_CAPTURE_SOURCE:-none}"
+
+# Stage 2.6: resolve orchestrator metadata from session JSON if not provided
+# via env vars (e.g., when capture-task-start.sh is called directly).
+if [[ -z "${HERMES_ORCHESTRATOR_SESSION_ID:-}" ]]; then
+  resolve_hermes_orchestrator_metadata
+fi
+
 # hermes_capture_source: "env" if any HERMES_* env is non-empty, else "none"
 hermes_capture_source="none"
 if [[ -n "${HERMES_SESSION_ID:-}" || -n "${HERMES_SESSION_CHAT_ID:-}" || -n "${HERMES_SESSION_PLATFORM:-}" || -n "${HERMES_HOME:-}" || -n "${HERMES_WEBUI_STATE_DIR:-}" || -n "${HERMES_KANBAN_BOARD:-}" || -n "${HERMES_EXECUTABLE_PATH:-}" || -n "${HERMES_VERSION:-}" || -n "${HERMES_PROFILE:-}" || -n "${HERMES_MEMORY_MODE:-}" || -n "${HERMES_MEMORY_ENABLED:-}" || -n "${HERMES_USER_PROFILE_ENABLED:-}" || -n "${HERMES_INTERACTIVE:-}" ]]; then
@@ -368,6 +463,16 @@ jq -n \
   --arg worker_prompt_path "$worker_prompt_path" \
   --arg worker_prompt_sha256 "$worker_prompt_sha256" \
   --argjson worker_prompt_chars "$worker_prompt_chars" \
+  --arg hermes_orchestrator_session_id "$hermes_orchestrator_session_id" \
+  --arg hermes_orchestrator_model "$hermes_orchestrator_model" \
+  --arg hermes_orchestrator_model_provider "$hermes_orchestrator_model_provider" \
+  --arg hermes_orchestrator_profile "$hermes_orchestrator_profile" \
+  --arg hermes_orchestrator_source_label "$hermes_orchestrator_source_label" \
+  --argjson hermes_orchestrator_is_cli_session "$hermes_orchestrator_is_cli_session" \
+  --arg hermes_orchestrator_workspace "$hermes_orchestrator_workspace" \
+  --arg hermes_orchestrator_worktree_path "$hermes_orchestrator_worktree_path" \
+  --arg hermes_orchestrator_reasoning_level "$hermes_orchestrator_reasoning_level" \
+  --arg hermes_orchestrator_capture_source "$hermes_orchestrator_capture_source" \
   '{
     task_id: $task_id,
     timestamp: $timestamp,
@@ -427,6 +532,16 @@ jq -n \
     worker_prompt_path: (if $worker_prompt_path == "" then null else $worker_prompt_path end),
     worker_prompt_sha256: (if $worker_prompt_sha256 == "" then null else $worker_prompt_sha256 end),
     worker_prompt_chars: $worker_prompt_chars,
+    hermes_orchestrator_session_id: $hermes_orchestrator_session_id,
+    hermes_orchestrator_model: $hermes_orchestrator_model,
+    hermes_orchestrator_model_provider: $hermes_orchestrator_model_provider,
+    hermes_orchestrator_profile: $hermes_orchestrator_profile,
+    hermes_orchestrator_source_label: $hermes_orchestrator_source_label,
+    hermes_orchestrator_is_cli_session: $hermes_orchestrator_is_cli_session,
+    hermes_orchestrator_workspace: $hermes_orchestrator_workspace,
+    hermes_orchestrator_worktree_path: (if $hermes_orchestrator_worktree_path == "" or $hermes_orchestrator_worktree_path == "null" then null else $hermes_orchestrator_worktree_path end),
+    hermes_orchestrator_reasoning_level: $hermes_orchestrator_reasoning_level,
+    hermes_orchestrator_capture_source: $hermes_orchestrator_capture_source,
     "opencodebench.session_id": $opencodebench_session_id,
     "opencodebench.project_id": $opencodebench_project_id,
     "opencodebench.repo_root": $opencodebench_repo_root,
@@ -442,6 +557,18 @@ jq -n \
       task_type_status: $task_type_status,
       timing: {
         start_unix_seconds: $opencodebench_start_unix_seconds
+      },
+      orchestrator: {
+        session_id: $hermes_orchestrator_session_id,
+        model: $hermes_orchestrator_model,
+        model_provider: $hermes_orchestrator_model_provider,
+        profile: $hermes_orchestrator_profile,
+        source_label: $hermes_orchestrator_source_label,
+        is_cli_session: $hermes_orchestrator_is_cli_session,
+        workspace: $hermes_orchestrator_workspace,
+        worktree_path: (if $hermes_orchestrator_worktree_path == "" or $hermes_orchestrator_worktree_path == "null" then null else $hermes_orchestrator_worktree_path end),
+        reasoning_level: $hermes_orchestrator_reasoning_level,
+        capture_source: $hermes_orchestrator_capture_source
       },
       trace: {
         hermes_user_prompt: (if $hermes_user_prompt_source == "unavailable" then null else {

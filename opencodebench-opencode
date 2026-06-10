@@ -53,8 +53,14 @@ Stage 2 env vars (all optional):
                                         sidecar (see below).
                                         Default: unset (template is written)
   OPENCODEBENCH_SKIP_HERMES_TRACE       set to 1 to skip the hermes_trace.json
-                                        sidecar (see Stage 2.5).
-                                        Default: unset (trace is written)
+                                         sidecar (see Stage 2.5).
+                                         Default: unset (trace is written)
+  OPENCODEBENCH_SKIP_HERMES_ORCHESTRATOR
+                                         set to 1 to skip the ten new
+                                         hermes_orchestrator_* fields
+                                         and the opencodebench.orchestrator.*
+                                         dual mirror (see Stage 2.6).
+                                         Default: unset (capture is on)
   OPENCODEBENCH_HERMES_USER_PROMPT_WINDOW_SECONDS
                                         Override the liveness window for
                                         pending_user_message (seconds).
@@ -321,6 +327,117 @@ for arg in "$@"; do
 done
 export OPENCODEBENCH_WORKER_PROMPT="$worker_prompt"
 
+# Stage 2.6: resolve Hermes orchestrator metadata from the WebUI session JSON.
+# Uses a single jq projection that picks only the 16 allow-listed top-level
+# scalar fields. Populates shell variables that are passed through as
+# HERMES_ORCHESTRATOR_* env vars to capture-task-start.sh.
+resolve_hermes_orchestrator_metadata() {
+  hermes_orchestrator_enabled="true"
+  hermes_orchestrator_session_id=""
+  hermes_orchestrator_model=""
+  hermes_orchestrator_model_provider=""
+  hermes_orchestrator_profile=""
+  hermes_orchestrator_source_label="unavailable"
+  hermes_orchestrator_is_cli_session="false"
+  hermes_orchestrator_workspace=""
+  hermes_orchestrator_worktree_path="null"
+  hermes_orchestrator_reasoning_level="unavailable"
+  hermes_orchestrator_capture_source="none"
+
+  if [[ "${OPENCODEBENCH_SKIP_HERMES_ORCHESTRATOR:-}" == "1" ]]; then
+    hermes_orchestrator_capture_source="skipped"
+    hermes_orchestrator_enabled="false"
+    return 0
+  fi
+
+  local session_json=""
+  if [[ -n "${HERMES_WEBUI_STATE_DIR:-}" && -n "${HERMES_SESSION_ID:-}" ]]; then
+    session_json="${HERMES_WEBUI_STATE_DIR}/sessions/${HERMES_SESSION_ID}.json"
+  fi
+
+  if [[ -z "$session_json" || ! -f "$session_json" || ! -r "$session_json" ]]; then
+    local _has_hermes=0 _v
+    for _v in HERMES_SESSION_ID HERMES_HOME HERMES_WEBUI_STATE_DIR \
+              HERMES_KANBAN_BOARD HERMES_INTERACTIVE HERMES_PROFILE \
+              HERMES_SESSION_PLATFORM HERMES_SESSION_CHAT_ID \
+              HERMES_EXECUTABLE_PATH HERMES_VERSION \
+              HERMES_MEMORY_MODE HERMES_MEMORY_ENABLED \
+              HERMES_USER_PROFILE_ENABLED; do
+      if [[ -n "${(P)_v:-}" ]]; then _has_hermes=1; break; fi
+    done
+    if [[ "$_has_hermes" -eq 1 ]]; then
+      hermes_orchestrator_capture_source="env"
+    fi
+    return 0
+  fi
+
+  local projection
+  projection=$(jq -c '{session_id, model, model_provider, profile, source_label,
+    session_source, raw_source, is_cli_session, workspace,
+    worktree_path, worktree_repo_root, worktree_branch, personality,
+    context_engine, compression_anchor_mode}' "$session_json" 2>/dev/null) || {
+    local _has_hermes=0 _v
+    for _v in HERMES_SESSION_ID HERMES_HOME HERMES_WEBUI_STATE_DIR \
+              HERMES_KANBAN_BOARD HERMES_INTERACTIVE HERMES_PROFILE \
+              HERMES_SESSION_PLATFORM HERMES_SESSION_CHAT_ID \
+              HERMES_EXECUTABLE_PATH HERMES_VERSION \
+              HERMES_MEMORY_MODE HERMES_MEMORY_ENABLED \
+              HERMES_USER_PROFILE_ENABLED; do
+      if [[ -n "${(P)_v:-}" ]]; then _has_hermes=1; break; fi
+    done
+    if [[ "$_has_hermes" -eq 1 ]]; then
+      hermes_orchestrator_capture_source="env"
+    fi
+    return 0
+  }
+
+  hermes_orchestrator_session_id=$(jq -r '.session_id // ""' <<<"$projection")
+  hermes_orchestrator_model=$(jq -r '.model // ""' <<<"$projection")
+  hermes_orchestrator_model_provider=$(jq -r '.model_provider // ""' <<<"$projection")
+  hermes_orchestrator_profile=$(jq -r '.profile // ""' <<<"$projection")
+
+  local sl ss rs
+  sl=$(jq -r '.source_label // ""' <<<"$projection")
+  ss=$(jq -r '.session_source // ""' <<<"$projection")
+  rs=$(jq -r '.raw_source // ""' <<<"$projection")
+  if [[ -n "$sl" && "$sl" != "null" ]]; then
+    hermes_orchestrator_source_label="$sl"
+  elif [[ -n "$ss" && "$ss" != "null" ]]; then
+    hermes_orchestrator_source_label="$ss"
+  elif [[ -n "$rs" && "$rs" != "null" ]]; then
+    hermes_orchestrator_source_label="$rs"
+  fi
+
+  hermes_orchestrator_is_cli_session=$(jq -r '.is_cli_session // false' <<<"$projection")
+  hermes_orchestrator_workspace=$(jq -r '.workspace // ""' <<<"$projection")
+  hermes_orchestrator_worktree_path=$(jq -r '.worktree_path // null' <<<"$projection")
+
+  local ce cam
+  ce=$(jq -r '.context_engine // ""' <<<"$projection")
+  cam=$(jq -r '.compression_anchor_mode // ""' <<<"$projection")
+  if [[ -n "$ce" && "$ce" != "null" ]]; then
+    hermes_orchestrator_reasoning_level="$ce"
+  elif [[ -n "$cam" && "$cam" != "null" ]]; then
+    hermes_orchestrator_reasoning_level="$cam"
+  fi
+
+  local _has_hermes=0 _v
+  for _v in HERMES_SESSION_ID HERMES_HOME HERMES_WEBUI_STATE_DIR \
+            HERMES_KANBAN_BOARD HERMES_INTERACTIVE HERMES_PROFILE \
+            HERMES_SESSION_PLATFORM HERMES_SESSION_CHAT_ID \
+            HERMES_EXECUTABLE_PATH HERMES_VERSION \
+            HERMES_MEMORY_MODE HERMES_MEMORY_ENABLED \
+            HERMES_USER_PROFILE_ENABLED; do
+    if [[ -n "${(P)_v:-}" ]]; then _has_hermes=1; break; fi
+  done
+  if [[ "$_has_hermes" -eq 1 ]]; then
+    hermes_orchestrator_capture_source="env"
+  else
+    hermes_orchestrator_capture_source="session_json"
+  fi
+}
+resolve_hermes_orchestrator_metadata
+
 task_dir=$(
   HARNESS=opencode \
   HARNESS_MODE="$opencodebench_harness_mode" \
@@ -335,6 +452,17 @@ task_dir=$(
   LAUNCHER_USED=OpenCodeBench \
   OPENCODE_EXECUTABLE_PATH="$opencode_bin" \
   MODEL="${OPENCODE_MODEL:-unknown}" \
+  HERMES_ORCHESTRATOR_ENABLED="$hermes_orchestrator_enabled" \
+  HERMES_ORCHESTRATOR_SESSION_ID="$hermes_orchestrator_session_id" \
+  HERMES_ORCHESTRATOR_MODEL="$hermes_orchestrator_model" \
+  HERMES_ORCHESTRATOR_MODEL_PROVIDER="$hermes_orchestrator_model_provider" \
+  HERMES_ORCHESTRATOR_PROFILE="$hermes_orchestrator_profile" \
+  HERMES_ORCHESTRATOR_SOURCE_LABEL="$hermes_orchestrator_source_label" \
+  HERMES_ORCHESTRATOR_IS_CLI_SESSION="$hermes_orchestrator_is_cli_session" \
+  HERMES_ORCHESTRATOR_WORKSPACE="$hermes_orchestrator_workspace" \
+  HERMES_ORCHESTRATOR_WORKTREE_PATH="$hermes_orchestrator_worktree_path" \
+  HERMES_ORCHESTRATOR_REASONING_LEVEL="$hermes_orchestrator_reasoning_level" \
+  HERMES_ORCHESTRATOR_CAPTURE_SOURCE="$hermes_orchestrator_capture_source" \
   "$script_dir/capture-task-start.sh" "$repo_root"
 )
 
