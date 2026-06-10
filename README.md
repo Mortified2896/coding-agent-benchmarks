@@ -92,6 +92,69 @@ inventory is in
 and the validation report is in
 [docs/stage-26-card-4-validation.md](docs/stage-26-card-4-validation.md).
 
+### Stage 2.9 — private Hermes transcript layer
+
+Stage 2.9 adds a **local-only** transcript layer that imports Hermes
+WebUI conversation data and links it to the OpenCodeBench task logs
+captured by Stages 1, 2, 2.5, 2.6, and 2.7. It is **observation
+only** and follows the same additive rules as the earlier stages —
+no Stage 1 / 2 / 2.5 / 2.6 / 2.7 key is renamed, removed, or
+retyped.
+
+**The private data never leaves the local machine.** Stage 2.9
+produces exactly one artifact that lives outside the Git tree:
+
+```text
+<project_root>/.local/private-analysis/hermes_transcripts.sqlite
+```
+
+This path is matched by the existing `.local/` rule in
+`.gitignore` (line 7). The **only** Stage 2.9 artifacts that are
+Git-tracked are the design doc, the importer script, and the
+validation report — see the file list below.
+
+**The full schema, the Git-allowed vs private-only content split,
+the secret-handling rule (redact-before-store, never print
+values), and the explicit Stage 3 follow-ups (backup, then
+analysis) are in
+[docs/stage-29-private-transcript-layer.md](docs/stage-29-private-transcript-layer.md).
+The validation report — counts, link breakdown, Stage 2.7
+field-presence, and a strict-pass secret scan across all tracked
+files — is in
+[docs/stage-29-validation.md](docs/stage-29-validation.md). The
+importer is `scripts/import_hermes_transcripts.py` (Python stdlib
+only, idempotent, optional `--no-task-logs` flag for unit tests).**
+
+#### What Stage 2.9 does not do
+
+- It does not push. All Stage 2.9 commits are local.
+- It does not implement backup. Backup of
+  `.local/private-analysis/hermes_transcripts.sqlite` is
+  **required before Stage 3 analysis** and is a separate
+  user-approved card; the design doc records the implication.
+- It does not start Stage 3. Any analysis layer is gated on
+  the user approving the backup step first.
+- It does not read `~/.hermes/.env`, `config.yaml`, `auth.json`,
+  `SOUL.md`, `MEMORY.md`, `USER.md`, the run/turn journals, or
+  `state.db.messages`. The narrow `state.db` read shape from
+  Stage 2.7 is preserved.
+- It does not introduce any interpretive label
+  (`routing_policy_followed`, `delegated_to_opencode`,
+  `user_intervention_needed`, etc.). Those remain Stage 3
+  computations and are explicitly deferred.
+
+#### Raw transcripts must not be pushed
+
+The user's MVP assumption is: *"I know Hermes chats may be tracked
+locally for analysis."* That assumption is what makes the private
+importer possible. It does **not** extend to GitHub. Raw Hermes
+transcript text, raw user prompts, raw assistant responses, raw
+worker prompts, raw tool outputs, raw `metadata.json` sidecars,
+raw `hermes_trace.json`, raw `state.db`, raw WebUI session JSON,
+and the private SQLite database itself must never be committed
+to this repository, opened in a public issue, or attached to a
+pull request.
+
 ## Tracked command
 
 Use `opencodebench-opencode` for any tracked OpenCode work. Raw `opencode`
