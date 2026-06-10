@@ -1,8 +1,11 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 set -euo pipefail
 
-script_dir="${0:A:h}"
-wrapper_path="${0:A}"
+# bash equivalent of zsh's "${0:A}" (absolute path, symlinks resolved) and
+# "${0:A:h}" (absolute path of the script's directory).
+_script_path="$(readlink -f -- "$0")"
+script_dir="$(dirname -- "$_script_path")"
+wrapper_path="$_script_path"
 
 # Stage 2 Card 3: --help handler. Print usage and exit before any side
 # effects (no Git detection, no capture, no opencode launch). This is
@@ -203,15 +206,18 @@ if [[ -n "$target_dir_arg" ]]; then
   else
     resolved_target_dir="$PWD/$target_dir_arg"
   fi
-  resolved_target_dir="${resolved_target_dir:A}"
+  # bash equivalent of zsh's "${var:A}" — canonical absolute path. Guarded
+  # so a non-existent path still falls through to the [[ ! -d ]] check below
+  # and produces the same user-facing error message as the zsh version.
+  resolved_target_dir="$(readlink -f -- "$resolved_target_dir" 2>/dev/null || printf '%s' "$resolved_target_dir")"
   if [[ ! -d "$resolved_target_dir" ]]; then
-    print -u2 "Error: --dir target is not an existing directory: $target_dir_arg"
-    print -u2 "Resolved path: $resolved_target_dir"
+    printf '%s\n' "Error: --dir target is not an existing directory: $target_dir_arg" >&2
+    printf '%s\n' "Resolved path: $resolved_target_dir" >&2
     exit 1
   fi
   if ! git -C "$resolved_target_dir" rev-parse --show-toplevel >/dev/null 2>&1; then
-    print -u2 "Error: --dir target is not inside a Git repository: $resolved_target_dir"
-    print -u2 "Stage 1 tracks existing Git repositories only; it will not run git init or select a configured project."
+    printf '%s\n' "Error: --dir target is not inside a Git repository: $resolved_target_dir" >&2
+    printf '%s\n' "Stage 1 tracks existing Git repositories only; it will not run git init or select a configured project." >&2
     exit 1
   fi
   working_directory="$resolved_target_dir"
@@ -220,10 +226,10 @@ else
   working_directory="$PWD"
   repo_detection_method="cwd_git_root"
   if ! git -C "$working_directory" rev-parse --show-toplevel >/dev/null 2>&1; then
-    print -u2 "Error: opencodebench-opencode must be run from inside an existing Git repository."
-    print -u2 "Checked working directory: $working_directory"
-    print -u2 "(Or pass --dir <path> to target an existing Git repository from outside one.)"
-    print -u2 "Stage 1 tracks existing Git repositories only; it will not run git init or select a configured project."
+    printf '%s\n' "Error: opencodebench-opencode must be run from inside an existing Git repository." >&2
+    printf '%s\n' "Checked working directory: $working_directory" >&2
+    printf '%s\n' "(Or pass --dir <path> to target an existing Git repository from outside one.)" >&2
+    printf '%s\n' "Stage 1 tracks existing Git repositories only; it will not run git init or select a configured project." >&2
     exit 1
   fi
 fi
@@ -273,8 +279,8 @@ case "$upstream_orchestrator" in
     opencodebench_orchestration_mode="unknown"
     ;;
   *)
-    print -u2 "Error: invalid OPENCODEBENCH_UPSTREAM_ORCHESTRATOR: $upstream_orchestrator"
-    print -u2 "Allowed values: unset, none, hermes, unknown."
+    printf '%s\n' "Error: invalid OPENCODEBENCH_UPSTREAM_ORCHESTRATOR: $upstream_orchestrator" >&2
+    printf '%s\n' "Allowed values: unset, none, hermes, unknown." >&2
     exit 1
     ;;
 esac
@@ -284,21 +290,25 @@ if [[ -z "$opencode_bin" ]]; then
   if command -v opencode >/dev/null 2>&1; then
     opencode_bin="$(command -v opencode)"
   else
-    print -u2 "Error: opencode CLI not found in PATH."
+    printf '%s\n' "Error: opencode CLI not found in PATH." >&2
     exit 127
   fi
 fi
 
-opencode_bin="${opencode_bin:A}"
+# bash equivalent of zsh's "${var:A}" — canonical absolute path. Guarded
+# so a missing/relative path still produces a useful error rather than
+# crashing readlink. By this point command -v has succeeded (line above)
+# so the path exists.
+opencode_bin="$(readlink -f -- "$opencode_bin" 2>/dev/null || printf '%s' "$opencode_bin")"
 
 if [[ ! -x "$opencode_bin" ]]; then
-  print -u2 "Error: resolved OpenCode binary is not executable: $opencode_bin"
+  printf '%s\n' "Error: resolved OpenCode binary is not executable: $opencode_bin" >&2
   exit 127
 fi
 
 case "$opencode_bin" in
   "$wrapper_path"|"$script_dir/opencodebench-opencode"|"$script_dir/opencode-bench.sh"|*"OpenCodeBench.app"*)
-    print -u2 "Error: resolved OpenCode binary points to an OpenCodeBench wrapper instead of the real OpenCode CLI: $opencode_bin"
+    printf '%s\n' "Error: resolved OpenCode binary points to an OpenCodeBench wrapper instead of the real OpenCode CLI: $opencode_bin" >&2
     exit 127
     ;;
 esac
@@ -402,7 +412,9 @@ resolve_hermes_orchestrator_metadata() {
               HERMES_EXECUTABLE_PATH HERMES_VERSION \
               HERMES_MEMORY_MODE HERMES_MEMORY_ENABLED \
               HERMES_USER_PROFILE_ENABLED; do
-      if [[ -n "${(P)_v:-}" ]]; then _has_hermes=1; break; fi
+      # bash equivalent of zsh's "${(P)_v:-}" — indirect expansion through
+      # the variable whose name is the value of _v, treating unset as empty.
+      if [[ -n "${!_v:-}" ]]; then _has_hermes=1; break; fi
     done
     if [[ "$_has_hermes" -eq 1 ]]; then
       hermes_orchestrator_capture_source="env"
@@ -440,7 +452,9 @@ resolve_hermes_orchestrator_metadata() {
               HERMES_EXECUTABLE_PATH HERMES_VERSION \
               HERMES_MEMORY_MODE HERMES_MEMORY_ENABLED \
               HERMES_USER_PROFILE_ENABLED; do
-      if [[ -n "${(P)_v:-}" ]]; then _has_hermes=1; break; fi
+      # bash equivalent of zsh's "${(P)_v:-}" — indirect expansion through
+      # the variable whose name is the value of _v, treating unset as empty.
+      if [[ -n "${!_v:-}" ]]; then _has_hermes=1; break; fi
     done
     if [[ "$_has_hermes" -eq 1 ]]; then
       hermes_orchestrator_capture_source="env"
@@ -508,7 +522,8 @@ resolve_hermes_orchestrator_metadata() {
             HERMES_EXECUTABLE_PATH HERMES_VERSION \
             HERMES_MEMORY_MODE HERMES_MEMORY_ENABLED \
             HERMES_USER_PROFILE_ENABLED; do
-    if [[ -n "${(P)_v:-}" ]]; then _has_hermes=1; break; fi
+    # bash equivalent of zsh's "${(P)_v:-}" — see comment in first match.
+    if [[ -n "${!_v:-}" ]]; then _has_hermes=1; break; fi
   done
   if [[ "$_has_hermes" -eq 1 ]]; then
     hermes_orchestrator_capture_source="env"
@@ -654,24 +669,24 @@ write_evaluation_template() {
 
   if [[ -f "$evaluation_path" ]]; then
     if ! {
-      print -r -- ""
-      print -r -- "## Re-run note"
-      print -r -- ""
-      print -r -- "This evaluation.md was re-generated on a subsequent run."
-      print -r -- ""
-      print -r -- "- **Re-run task_id:** $tid"
-      print -r -- "- **Re-run model_id:** $mid"
-      print -r -- "- **Re-run start_time:** $stime"
-      print -r -- "- **Re-run finish_time:** $ftime"
-      print -r -- "- **Re-run duration:** ${dur}s"
-      print -r -- "- **Re-run exit_code:** $ec"
-      print -r -- "- **Re-run files_changed:** $fc"
-      print -r -- "- **Re-run lines_added:** $la"
-      print -r -- "- **Re-run lines_deleted:** $ld"
-      print -r -- "- **Working tree dirty after:** $wtd"
-      print -r -- "- **Diff produced:** $dp"
+      printf '%s\n' ""
+      printf '%s\n' "## Re-run note"
+      printf '%s\n' ""
+      printf '%s\n' "This evaluation.md was re-generated on a subsequent run."
+      printf '%s\n' ""
+      printf '%s\n' "- **Re-run task_id:** $tid"
+      printf '%s\n' "- **Re-run model_id:** $mid"
+      printf '%s\n' "- **Re-run start_time:** $stime"
+      printf '%s\n' "- **Re-run finish_time:** $ftime"
+      printf '%s\n' "- **Re-run duration:** ${dur}s"
+      printf '%s\n' "- **Re-run exit_code:** $ec"
+      printf '%s\n' "- **Re-run files_changed:** $fc"
+      printf '%s\n' "- **Re-run lines_added:** $la"
+      printf '%s\n' "- **Re-run lines_deleted:** $ld"
+      printf '%s\n' "- **Working tree dirty after:** $wtd"
+      printf '%s\n' "- **Diff produced:** $dp"
     } >> "$evaluation_path"; then
-      print -u2 "Warning: failed to append re-run note to '$evaluation_path'"
+      printf '%s\n' "Warning: failed to append re-run note to '$evaluation_path'" >&2
     fi
   else
     local d=$'\x01'
@@ -705,7 +720,7 @@ write_evaluation_template() {
              -e "s${d}<!-- diff_produced -->${d}${dp_e}${d}g" \
              -e "s${d}<!-- evaluated_at -->${d}${ea_e}${d}g" \
              "$template_path" > "$evaluation_path"; then
-      print -u2 "Warning: failed to write '$evaluation_path'"
+      printf '%s\n' "Warning: failed to write '$evaluation_path'" >&2
     fi
   fi
 }
@@ -815,7 +830,7 @@ finish_capture() {
     "$script_dir/capture-task-finish.sh" "$task_dir" "$opencode_exit_code" >/dev/null || true
     write_evaluation_template "$task_dir"
     write_hermes_trace "$task_dir"
-    print -r -- "OpenCodeBench task log directory: $task_dir"
+    printf '%s\n' "OpenCodeBench task log directory: $task_dir"
   fi
 }
 trap finish_capture EXIT

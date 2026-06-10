@@ -1,7 +1,7 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 set -euo pipefail
 
-script_dir="${0:A:h}"
+script_dir="$(cd "$(dirname -- "$0")" && pwd)"
 config_file="${OPENCODEBENCH_CONFIG:-$HOME/.config/opencodebench/config.env}"
 
 if [[ -f "$config_file" ]]; then
@@ -12,8 +12,8 @@ target_repo="${OPENCODEBENCH_REPO:-${OPENCODEBENCH_DEFAULT_REPO:-$PWD}}"
 target_repo="${target_repo/#\~/$HOME}"
 
 if ! git -C "$target_repo" rev-parse --show-toplevel >/dev/null 2>&1; then
-  print -u2 "Error: target path is not inside a Git repository: $target_repo"
-  print -u2 "Set OPENCODEBENCH_REPO or OPENCODEBENCH_DEFAULT_REPO in $config_file."
+  printf '%s\n' "Error: target path is not inside a Git repository: $target_repo" >&2
+  printf '%s\n' "Set OPENCODEBENCH_REPO or OPENCODEBENCH_DEFAULT_REPO in $config_file." >&2
   exit 1
 fi
 
@@ -24,8 +24,8 @@ opencodebench_agent_command_label="${OPENCODEBENCH_AGENT_COMMAND_LABEL:-opencode
 opencodebench_task_source="${OPENCODEBENCH_TASK_SOURCE:-cli}"
 
 if [[ "$opencodebench_harness" != "opencode" || "$opencodebench_harness_mode" != "direct" ]]; then
-  print -u2 "Error: unsupported OpenCodeBench harness: ${opencodebench_harness}/${opencodebench_harness_mode}"
-  print -u2 "Currently supported: opencode/direct."
+  printf '%s\n' "Error: unsupported OpenCodeBench harness: ${opencodebench_harness}/${opencodebench_harness_mode}" >&2
+  printf '%s\n' "Currently supported: opencode/direct." >&2
   exit 1
 fi
 
@@ -34,19 +34,19 @@ if [[ -z "$opencode_bin" ]]; then
   if command -v opencode >/dev/null 2>&1; then
     opencode_bin="$(command -v opencode)"
   else
-    print -u2 "Error: opencode CLI not found in PATH."
+    printf '%s\n' "Error: opencode CLI not found in PATH." >&2
     opencode_bin=""
   fi
 fi
 
 if [[ -n "$opencode_bin" && ! -x "$opencode_bin" ]]; then
-  print -u2 "Error: resolved OpenCode binary is not executable: $opencode_bin"
+  printf '%s\n' "Error: resolved OpenCode binary is not executable: $opencode_bin" >&2
   opencode_bin=""
 fi
 
 case "$opencode_bin" in
   "$script_dir/opencode-bench.sh"|*"OpenCodeBench.app"*)
-    print -u2 "Error: resolved OpenCode binary points to the benchmark launcher instead of the real OpenCode CLI: $opencode_bin"
+    printf '%s\n' "Error: resolved OpenCode binary points to the benchmark launcher instead of the real OpenCode CLI: $opencode_bin" >&2
     opencode_bin=""
     ;;
 esac
@@ -95,7 +95,7 @@ finish_capture() {
   if [[ "$finished" -eq 0 ]]; then
     finished=1
     "$script_dir/capture-task-finish.sh" "$task_dir" "$opencode_exit_code" >/dev/null || true
-    print -r -- "OpenCodeBench task log directory: $task_dir"
+    printf '%s\n' "OpenCodeBench task log directory: $task_dir"
   fi
 }
 trap finish_capture EXIT

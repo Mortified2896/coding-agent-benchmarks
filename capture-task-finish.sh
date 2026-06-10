@@ -1,13 +1,13 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 set -euo pipefail
 
 if ! command -v jq >/dev/null 2>&1; then
-  print -u2 "Error: jq is required to update metadata.json. Install jq and retry."
+  printf '%s\n' "Error: jq is required to update metadata.json. Install jq and retry." >&2
   exit 1
 fi
 
 if [[ $# -lt 1 ]]; then
-  print -u2 "Usage: capture-task-finish.sh <task_dir> [agent_exit_code] [agent_kind]"
+  printf '%s\n' "Usage: capture-task-finish.sh <task_dir> [agent_exit_code] [agent_kind]" >&2
   exit 1
 fi
 
@@ -17,13 +17,13 @@ agent_kind="${3:-opencode}"
 metadata_path="$task_dir/metadata.json"
 
 if [[ ! -f "$metadata_path" ]]; then
-  print -u2 "Error: metadata.json not found in task directory: $task_dir"
+  printf '%s\n' "Error: metadata.json not found in task directory: $task_dir" >&2
   exit 1
 fi
 
 repo=$(jq -r '.repo_path' "$metadata_path")
 if [[ -z "$repo" || "$repo" == "null" ]]; then
-  print -u2 "Error: repo_path missing from metadata.json"
+  printf '%s\n' "Error: repo_path missing from metadata.json" >&2
   exit 1
 fi
 
@@ -179,33 +179,33 @@ jq \
 mv "$tmp_metadata" "$metadata_path"
 
 {
-  print -r -- "# Coding-Agent Task Capture Summary"
-  print -r -- ""
-  print -r -- "- Task directory: \`$task_dir\`"
-  print -r -- "- Repository: \`$repo\`"
-  print -r -- "- Started: \`$start_time_display\`"
-  print -r -- "- Finished: \`$timestamp_end\`"
-  print -r -- "- Duration: \`${duration_seconds}s\`"
-  print -r -- "- Exit code: \`${exit_code:-unknown}\`"
+  printf '%s\n' "# Coding-Agent Task Capture Summary"
+  printf '%s\n' ""
+  printf '%s\n' "- Task directory: \`$task_dir\`"
+  printf '%s\n' "- Repository: \`$repo\`"
+  printf '%s\n' "- Started: \`$start_time_display\`"
+  printf '%s\n' "- Finished: \`$timestamp_end\`"
+  printf '%s\n' "- Duration: \`${duration_seconds}s\`"
+  printf '%s\n' "- Exit code: \`${exit_code:-unknown}\`"
   if [[ -n "$agent_exit_code" ]]; then
-    print -r -- "- Agent exit code: \`$agent_exit_code\`"
+    printf '%s\n' "- Agent exit code: \`$agent_exit_code\`"
     if [[ "$agent_kind" == "hermes" ]]; then
-      print -r -- "- Hermes exit code: \`$agent_exit_code\`"
+      printf '%s\n' "- Hermes exit code: \`$agent_exit_code\`"
     else
-      print -r -- "- OpenCode exit code: \`$agent_exit_code\`"
+      printf '%s\n' "- OpenCode exit code: \`$agent_exit_code\`"
     fi
   fi
-  print -r -- "- Diff stat: \`git-diff-stat.txt\`"
-  print -r -- "- Diff patch: \`git-diff.patch\`"
+  printf '%s\n' "- Diff stat: \`git-diff-stat.txt\`"
+  printf '%s\n' "- Diff patch: \`git-diff.patch\`"
   if [[ "$diff_is_git_repo" == "true" ]]; then
-    print -r -- "- Files changed: \`$files_changed\`"
-    print -r -- "- Lines added: \`$lines_added\`"
-    print -r -- "- Lines deleted: \`$lines_deleted\`"
-    print -r -- "- Working tree dirty after: \`$working_tree_dirty_after\`"
-    print -r -- "- Diff produced: \`$diff_produced\`"
+    printf '%s\n' "- Files changed: \`$files_changed\`"
+    printf '%s\n' "- Lines added: \`$lines_added\`"
+    printf '%s\n' "- Lines deleted: \`$lines_deleted\`"
+    printf '%s\n' "- Working tree dirty after: \`$working_tree_dirty_after\`"
+    printf '%s\n' "- Diff produced: \`$diff_produced\`"
   else
-    print -r -- "- Diff summary: \`(non-Git repo, all fields null)\`"
+    printf '%s\n' "- Diff summary: \`(non-Git repo, all fields null)\`"
   fi
 } > "$summary_path"
 
-print -r -- "$task_dir"
+printf '%s\n' "$task_dir"

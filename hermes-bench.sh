@@ -1,7 +1,7 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 set -euo pipefail
 
-script_dir="${0:A:h}"
+script_dir="$(cd "$(dirname -- "$0")" && pwd)"
 config_file="${OPENCODEBENCH_CONFIG:-$HOME/.config/opencodebench/config.env}"
 
 if [[ -f "$config_file" ]]; then
@@ -12,8 +12,8 @@ target_repo="${OPENCODEBENCH_REPO:-${OPENCODEBENCH_DEFAULT_REPO:-$PWD}}"
 target_repo="${target_repo/#\~/$HOME}"
 
 if ! git -C "$target_repo" rev-parse --show-toplevel >/dev/null 2>&1; then
-  print -u2 "Error: target path is not inside a Git repository: $target_repo"
-  print -u2 "Set OPENCODEBENCH_REPO or OPENCODEBENCH_DEFAULT_REPO in $config_file."
+  printf '%s\n' "Error: target path is not inside a Git repository: $target_repo" >&2
+  printf '%s\n' "Set OPENCODEBENCH_REPO or OPENCODEBENCH_DEFAULT_REPO in $config_file." >&2
   exit 1
 fi
 
@@ -27,20 +27,20 @@ opencodebench_task_source="${OPENCODEBENCH_TASK_SOURCE:-cli}"
 opencodebench_hermes_memory_mode="${OPENCODEBENCH_HERMES_MEMORY_MODE:-on}"
 
 if [[ "$opencodebench_harness" != "hermes" || "$opencodebench_harness_mode" != "orchestrating-opencode" ]]; then
-  print -u2 "Error: unsupported OpenCodeBench harness: ${opencodebench_harness}/${opencodebench_harness_mode}"
-  print -u2 "Currently supported by hermes-bench.sh: hermes/orchestrating-opencode."
+  printf '%s\n' "Error: unsupported OpenCodeBench harness: ${opencodebench_harness}/${opencodebench_harness_mode}" >&2
+  printf '%s\n' "Currently supported by hermes-bench.sh: hermes/orchestrating-opencode." >&2
   exit 1
 fi
 
 if [[ "$opencodebench_downstream_agent" != "opencode" ]]; then
-  print -u2 "Error: unsupported downstream agent for Hermes orchestration: $opencodebench_downstream_agent"
-  print -u2 "Currently supported downstream agent: opencode."
+  printf '%s\n' "Error: unsupported downstream agent for Hermes orchestration: $opencodebench_downstream_agent" >&2
+  printf '%s\n' "Currently supported downstream agent: opencode." >&2
   exit 1
 fi
 
 if [[ "$opencodebench_hermes_memory_mode" != "on" ]]; then
-  print -u2 "Error: unsupported Hermes memory mode: $opencodebench_hermes_memory_mode"
-  print -u2 "Currently supported Hermes memory mode: on. Memory-off benchmarking is not implemented yet."
+  printf '%s\n' "Error: unsupported Hermes memory mode: $opencodebench_hermes_memory_mode" >&2
+  printf '%s\n' "Currently supported Hermes memory mode: on. Memory-off benchmarking is not implemented yet." >&2
   exit 1
 fi
 
@@ -49,19 +49,19 @@ if [[ -z "$hermes_bin" ]]; then
   if command -v hermes >/dev/null 2>&1; then
     hermes_bin="$(command -v hermes)"
   else
-    print -u2 "Error: hermes CLI not found in PATH."
+    printf '%s\n' "Error: hermes CLI not found in PATH." >&2
     hermes_bin=""
   fi
 fi
 
 if [[ -n "$hermes_bin" && ! -x "$hermes_bin" ]]; then
-  print -u2 "Error: resolved Hermes binary is not executable: $hermes_bin"
+  printf '%s\n' "Error: resolved Hermes binary is not executable: $hermes_bin" >&2
   hermes_bin=""
 fi
 
 case "$hermes_bin" in
   "$script_dir/hermes-bench.sh"|*"OpenCodeBench.app"*)
-    print -u2 "Error: resolved Hermes binary points to the benchmark launcher instead of the real Hermes CLI: $hermes_bin"
+    printf '%s\n' "Error: resolved Hermes binary points to the benchmark launcher instead of the real Hermes CLI: $hermes_bin" >&2
     hermes_bin=""
     ;;
 esac
@@ -123,7 +123,7 @@ finish_capture() {
   if [[ "$finished" -eq 0 ]]; then
     finished=1
     "$script_dir/capture-task-finish.sh" "$task_dir" "$hermes_exit_code" hermes >/dev/null || true
-    print -r -- "OpenCodeBench task log directory: $task_dir"
+    printf '%s\n' "OpenCodeBench task log directory: $task_dir"
   fi
 }
 trap finish_capture EXIT

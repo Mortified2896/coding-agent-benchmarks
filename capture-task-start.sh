@@ -1,8 +1,8 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 set -euo pipefail
 
 if ! command -v jq >/dev/null 2>&1; then
-  print -u2 "Error: jq is required to write metadata.json. Install jq and retry."
+  printf '%s\n' "Error: jq is required to write metadata.json. Install jq and retry." >&2
   exit 1
 fi
 
@@ -13,8 +13,11 @@ validate_log_root_override() {
   local log_git_root
   local relative_log_path
 
+  # bash equivalent of zsh's "${var:h}" (parent directory). dirname returns
+  # "." for a path with no slash, and "/" for "/" itself, so the loop guard
+  # above ("$check_dir" != "/") is still correct.
   while [[ ! -e "$check_dir" && "$check_dir" != "/" ]]; do
-    check_dir="${check_dir:h}"
+    check_dir="$(dirname -- "$check_dir")"
   done
 
   if ! log_git_root=$(git -C "$check_dir" rev-parse --show-toplevel 2>/dev/null); then
@@ -26,11 +29,11 @@ validate_log_root_override() {
     return 0
   fi
 
-  print -u2 "Error: unsafe OPENCODEBENCH_LOG_ROOT: $log_root"
-  print -u2 "Benchmark logs may contain prompts, diffs, metadata, local paths, and filenames."
-  print -u2 "The resolved log path is inside a Git repository but is not ignored:"
-  print -u2 "  $intended_log_path"
-  print -u2 "Add an ignore rule for this log root or choose a path outside any Git repository."
+  printf '%s\n' "Error: unsafe OPENCODEBENCH_LOG_ROOT: $log_root" >&2
+  printf '%s\n' "Benchmark logs may contain prompts, diffs, metadata, local paths, and filenames." >&2
+  printf '%s\n' "The resolved log path is inside a Git repository but is not ignored:" >&2
+  printf '%s\n' "  $intended_log_path" >&2
+  printf '%s\n' "Add an ignore rule for this log root or choose a path outside any Git repository." >&2
   return 1
 }
 
@@ -49,10 +52,11 @@ detect_opencodebench_root() {
 
   while [[ "$search_dir" != "/" ]]; do
     if looks_like_opencodebench_root "$search_dir"; then
-      print -r -- "$search_dir"
+      printf '%s\n' "$search_dir"
       return 0
     fi
-    search_dir="${search_dir:h}"
+    # bash equivalent of zsh's "${var:h}" (parent directory).
+    search_dir="$(dirname -- "$search_dir")"
   done
 
   return 1
@@ -178,7 +182,9 @@ resolve_hermes_orchestrator_metadata() {
     for _v in HERMES_SESSION_ID HERMES_HOME HERMES_WEBUI_STATE_DIR \
               HERMES_KANBAN_BOARD HERMES_INTERACTIVE HERMES_PROFILE \
               HERMES_SESSION_PLATFORM HERMES_SESSION_CHAT_ID; do
-      if [[ -n "${(P)_v:-}" ]]; then _has_hermes=1; break; fi
+      # bash equivalent of zsh's "${(P)_v:-}" — indirect expansion through
+      # the variable whose name is the value of _v, treating unset as empty.
+      if [[ -n "${!_v:-}" ]]; then _has_hermes=1; break; fi
     done
     if [[ "$_has_hermes" -eq 1 ]]; then
       hermes_orchestrator_capture_source="env"
@@ -246,7 +252,8 @@ resolve_hermes_orchestrator_metadata() {
   for _v in HERMES_SESSION_ID HERMES_HOME HERMES_WEBUI_STATE_DIR \
             HERMES_KANBAN_BOARD HERMES_INTERACTIVE HERMES_PROFILE \
             HERMES_SESSION_PLATFORM HERMES_SESSION_CHAT_ID; do
-    if [[ -n "${(P)_v:-}" ]]; then _has_hermes=1; break; fi
+    # bash equivalent of zsh's "${(P)_v:-}" — see comment above.
+    if [[ -n "${!_v:-}" ]]; then _has_hermes=1; break; fi
   done
   if [[ "$_has_hermes" -eq 1 ]]; then
     hermes_orchestrator_capture_source="env"
@@ -261,18 +268,20 @@ default_log_root() {
   local state_home
 
   if project_root="$(detect_opencodebench_root "$script_dir")"; then
-    print -r -- "$project_root/.local/coding-agent-task-logs"
+    printf '%s\n' "$project_root/.local/coding-agent-task-logs"
     return 0
   fi
 
   state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
   state_home="${state_home/#\~/$HOME}"
-  print -r -- "$state_home/opencodebench/coding-agent-task-logs"
+  printf '%s\n' "$state_home/opencodebench/coding-agent-task-logs"
 }
 
 repo="${1:-$PWD}"
 prompt_file="${2:-}"
-script_dir="${0:A:h}"
+# bash equivalent of zsh's "${0:A:h}" — absolute path of the script's
+# directory, symlinks resolved (matching zsh :A semantics via readlink -f).
+script_dir="$(cd "$(dirname -- "$(readlink -f -- "$0")")" && pwd)"
 
 git_root=$(git -C "$repo" rev-parse --show-toplevel)
 timestamp_start=$(date -u +%Y-%m-%dT%H-%M-%SZ)
@@ -371,9 +380,9 @@ if [[ -n "$task_type_raw" ]]; then
   else
     # Unknown value: keep the raw (lowercased) value so downstream
     # analysis can see what was attempted, and warn loudly.
-    print -u2 "Warning: OPENCODEBENCH_TASK_TYPE='$task_type_raw' (normalized: '$task_type') is not in the allowed set."
-    print -u2 "Allowed values: ${allowed_task_types[*]}"
-    print -u2 "Recording the raw value verbatim; downstream analysis should treat this as unknown."
+    printf '%s\n' "Warning: OPENCODEBENCH_TASK_TYPE='$task_type_raw' (normalized: '$task_type') is not in the allowed set." >&2
+    printf '%s\n' "Allowed values: ${allowed_task_types[*]}" >&2
+    printf '%s\n' "Recording the raw value verbatim; downstream analysis should treat this as unknown." >&2
     task_type_status="unknown"
   fi
 else
@@ -390,7 +399,10 @@ opencodebench_repo_root="$git_root"
 year=$(date -u +%Y)
 month=$(date -u +%m)
 if [[ -n "${OPENCODEBENCH_LOG_ROOT:-}" ]]; then
-  log_root="${OPENCODEBENCH_LOG_ROOT:A}"
+  # bash equivalent of zsh's "${var:A}" — canonical absolute path. Guarded
+  # so a non-existent or already-relative path still produces a useful
+  # result rather than crashing readlink.
+  log_root="$(readlink -f -- "${OPENCODEBENCH_LOG_ROOT}" 2>/dev/null || printf '%s' "${OPENCODEBENCH_LOG_ROOT}")"
 else
   log_root="$(default_log_root "$script_dir")"
 fi
@@ -412,14 +424,14 @@ if [[ -n "$prompt_file" ]]; then
   cp "$prompt_file" "$task_dir/task.md"
 else
   {
-    print -r -- "# OpenCodeBench Session"
-    print -r -- ""
-    print -r -- "No startup prompt was provided. This session was captured from a normal OpenCode launch."
+    printf '%s\n' "# OpenCodeBench Session"
+    printf '%s\n' ""
+    printf '%s\n' "No startup prompt was provided. This session was captured from a normal OpenCode launch."
   } > "$task_dir/task.md"
 fi
 
-print -r -- "$git_head_before" > "$task_dir/git-head-before.txt"
-print -r -- "$git_branch_before" > "$task_dir/git-branch-before.txt"
+printf '%s\n' "$git_head_before" > "$task_dir/git-head-before.txt"
+printf '%s\n' "$git_branch_before" > "$task_dir/git-branch-before.txt"
 git -C "$git_root" status --short > "$task_dir/git-status-before.txt"
 git -C "$git_root" diff > "$task_dir/git-diff-before.patch"
 git -C "$git_root" diff --stat > "$task_dir/git-diff-stat-before.txt"
@@ -658,4 +670,4 @@ jq -n \
     }
   }' > "$task_dir/metadata.json"
 
-print -r -- "$task_dir"
+printf '%s\n' "$task_dir"

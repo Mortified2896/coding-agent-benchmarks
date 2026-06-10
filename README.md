@@ -174,7 +174,7 @@ For a tracked OpenCode run targeted at a specific repository, prefer
 `--dir` so the wrapper records the target repo, not the launch directory:
 
 ```sh
-/Users/Jo/GitHub/coding-agent-benchmarks/opencodebench-opencode \
+/path/to/coding-agent-benchmarks/opencodebench-opencode \
   run --dir /path/to/target-repo \
   -m opencode/mimo-v2.5-free \
   'Reply exactly OK and do not edit files.'
@@ -183,7 +183,7 @@ For a tracked OpenCode run targeted at a specific repository, prefer
 For implementation-style work, use a free implementation-tuned model:
 
 ```sh
-/Users/Jo/GitHub/coding-agent-benchmarks/opencodebench-opencode \
+/path/to/coding-agent-benchmarks/opencodebench-opencode \
   run --dir /path/to/target-repo \
   -m opencode/deepseek-v4-flash-free \
   'Implement the change described in the prompt.'
@@ -197,7 +197,7 @@ Simulated Hermes-delegated run (for tests and for documentation examples):
 
 ```sh
 OPENCODEBENCH_UPSTREAM_ORCHESTRATOR=hermes \
-  /Users/Jo/GitHub/coding-agent-benchmarks/opencodebench-opencode \
+  /path/to/coding-agent-benchmarks/opencodebench-opencode \
   run --dir /path/to/target-repo \
   -m opencode/mimo-v2.5-free \
   'Reply exactly OK and do not edit files.'
@@ -355,7 +355,88 @@ conclusion, and should be revised after real traces are collected.
 
 ## Install
 
-Stage 1 does not require an install step. The wrapper, capture scripts, and
-documentation are used directly from the project checkout. The `Desktop app`
-and macOS launcher described in earlier revisions of this README are
-intentionally not part of Stage 1.
+Debian / Linux support has been added for the OpenCodeBench benchmark
+**core**. The current tested target is the Hermes Debian VM (Debian 12,
+bash 5.2, GNU coreutils). The core scripts have been verified to run
+end-to-end on that target via the smoke tests documented in
+`docs/stage-2-tracking.md` and the validation cases.
+
+macOS compatibility of the bash port has not been re-verified for this
+patch and is not the current priority. The `readlink -f` and other
+GNU-coreutils paths used by the port should be re-tested on macOS before
+any claim of full macOS support is made again. Future macOS compatibility
+can be tested separately.
+
+The core scripts are:
+
+- `opencodebench-opencode` — the tracked OpenCode wrapper
+- `opencode-bench.sh`, `hermes-bench.sh` — harness launchers
+- `capture-task-start.sh`, `capture-task-finish.sh` — per-task log capture
+- `config/config.env.example` — optional env-var config template
+
+These are invoked directly from the project checkout on Debian / Linux
+with no build step and no install step.
+
+### What is Mac-only
+
+The following pieces of this repository are macOS-only and are **not**
+required for the benchmark core to run on any platform:
+
+- `macos/OpenCodeBench.app/` — a macOS application bundle that provides
+  an optional GUI launcher (Spotlight, Raycast, Alfred, Finder). It uses
+  `osascript` and LaunchServices and only runs on macOS.
+- `install-opencodebench-macos.sh` — copies the `.app` bundle into
+  `~/Applications` and registers it with LaunchServices. macOS only.
+- The macOS GUI launcher / LaunchServices integration path in
+  `opencodebench-opencode`'s error dialogs (the `osascript` calls).
+
+**No Linux GUI is provided or planned.** Linux usage of the benchmark
+core is terminal-based: invoke the wrapper scripts from a shell, the way
+the rest of the CLI ecosystem already does.
+
+### Running on Debian / Linux (Hermes VM and similar hosts)
+
+Runtime dependencies for the capture scripts: `git`, `jq`, `sqlite3`.
+Install these packages as root, or with sudo if available:
+
+```sh
+# As root, or with sudo if your host has it
+apt-get update && apt-get install -y git jq sqlite3
+# (or: sudo apt-get update && sudo apt-get install -y git jq sqlite3)
+```
+
+`bash` is part of the base system on Debian and is not a separate
+package. `git`, `jq`, and `sqlite3` are the runtime dependencies of the
+capture scripts.
+
+Then from the project checkout:
+
+```sh
+# Make sure the scripts are executable (clone preserves the bit, but be safe)
+chmod +x *.sh opencodebench-opencode
+
+# Run a tracked OpenCode session against a target Git repo
+/path/to/coding-agent-benchmarks/opencodebench-opencode run --dir /path/to/target-repo
+```
+
+Log directory resolution on Linux follows the XDG Base Directory spec
+(`${XDG_STATE_HOME:-$HOME/.local/state}/opencodebench/coding-agent-task-logs/`)
+when the wrapper is run from an installed/copied location, and falls into
+`<repo>/.local/coding-agent-task-logs/` when run from the project checkout
+itself. Both are gitignored.
+
+### macOS (previously the primary target; not re-tested in this patch)
+
+The repo was originally developed on macOS, and the previous Stage 1
+README revisions treated macOS as the primary host. That is no longer
+the case. The Mac-specific pieces above are kept in the repository for
+reference and as an *optional* add-on for users who want a GUI launcher,
+but they have not been re-verified for this Debian-port patch and should
+be considered unmaintained until a future macOS re-test pass.
+
+In particular: do not run `install-opencodebench-macos.sh` or launch
+`macos/OpenCodeBench.app` from a host that has only had the bash port
+applied, without first re-testing the bash port on macOS. The
+`readlink -f` and other GNU-coreutils paths used in the port need an
+explicit macOS smoke test before any Mac-side workflow is relied on
+again.
