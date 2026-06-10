@@ -419,12 +419,9 @@ captures does not contain them.
   `worker_prompt_sha256` to group runs by Hermes session, then
   compute per-session aggregate statistics (e.g. success rate per
   session, average `duration_seconds` per session).
-- **Reasoning level backfill from `gateway_routing`.** Read the
-  `gateway_routing` object's reasoning-mode field, if any, and add
-  it to `hermes_orchestrator_reasoning_level`. **Explicit user
-  opt-in required**, and only if the user is comfortable re-opening
-  the `gateway_routing` portion of the boundary. Stage 2.6 does
-  not implement this.
+- **Reasoning level backfill from `gateway_routing`** — superseded
+  by Stage 2.7 (`state.db.sessions.model_config.reasoning_config.effort`).
+  See `docs/stage-27-tracking.md`.
 
 ## Known limitations
 
@@ -458,5 +455,8 @@ captures does not contain them.
   Hermes trace capture (the layer Stage 2.6 sits next to).
 - [docs/stage-26-card-1-inventory.md](stage-26-card-1-inventory.md) —
   the read-only inventory of allow-listed fields.
+- [docs/stage-27-tracking.md](stage-27-tracking.md) — Stage 2.7
+  reasoning level from `state.db` (the layer that resolves the
+  `hermes_orchestrator_reasoning_level` field).
 - [docs/current-openbench-model-routing.md](current-openbench-model-routing.md) —
   worker selection and provider-failure handling policy.

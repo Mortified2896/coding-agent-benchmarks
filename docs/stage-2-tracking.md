@@ -484,3 +484,5 @@ relative to the cost of switching contexts.
 - [docs/kanban-board-consolidation.md](kanban-board-consolidation.md) —
   the Stage 1 + Stage 2 → `opencodebench` board migration record,
   with the full task-id mapping table.
+- [docs/stage-27-tracking.md](stage-27-tracking.md) — Stage 2.7
+  reasoning level from `state.db`.
