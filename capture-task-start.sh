@@ -357,6 +357,22 @@ reasoning_level="${REASONING_LEVEL:-}"
 # Allowed values (case-insensitive, normalized to lowercase, trimmed):
 #   implementation, debugging, review, docs, investigation,
 #   refactor, validation, architecture.
+# bash-portable case-insensitive "value in indexed array" check.
+# Replaces zsh's ${array[(Ie)value]} subscript flag. Returns 0
+# (success/true) when the lowercased needle is found in the
+# lowercased haystack, 1 otherwise. The caller is expected to have
+# already lowercased the needle (we do that for task_type above).
+_opencodebench_task_type_in_list() {
+  local needle="$1"
+  local _att
+  for _att in "${allowed_task_types[@]}"; do
+    if [[ "${_att,,}" == "$needle" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 # Missing/empty: task_type="unspecified" (do not crash, do not warn).
 # Unknown value: record the raw value AND warn to stderr (do not coerce).
 # This is a fail-loud design — bad data is worse than no data only when
@@ -375,7 +391,7 @@ if [[ -n "$task_type_raw" ]]; then
     # Whitespace-only input — treat like unset, not like an unknown value.
     task_type="unspecified"
     task_type_status="empty"
-  elif (( ${allowed_task_types[(Ie)$task_type]} )); then
+  elif _opencodebench_task_type_in_list "$task_type"; then
     task_type_status="valid"
   else
     # Unknown value: keep the raw (lowercased) value so downstream
