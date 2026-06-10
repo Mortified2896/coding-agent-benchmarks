@@ -10,3 +10,5 @@ worktrees/
 benchmark-cases/
 .hermes/
 *.dSYM/
+__pycache__/
+*.pyc
