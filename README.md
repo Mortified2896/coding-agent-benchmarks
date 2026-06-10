@@ -63,6 +63,35 @@ Stage 2.5 is **observation only**; any interpretive analysis
 (routing-policy scoring, intervention counts, etc.) is deferred to a
 future Stage 3 and is explicitly **not** in the captured data.
 
+### Stage 2.6 — safe Hermes orchestrator metadata capture
+
+Stage 2.6 adds 10 new top-level `hermes_orchestrator_*` fields to
+`metadata.json` and a dual mirror under `opencodebench.orchestrator.*`.
+The fields describe the **orchestrator** (the Hermes run that invoked
+the worker): `model`, `model_provider`, `profile`, `session_id`,
+`is_cli_session`, `workspace`, `worktree_path`, and the precedence
+chains for `source_label` and `reasoning_level`. A
+`hermes_orchestrator_capture_source` field records where the values
+came from (`env`, `session_json`, `none`, or `skipped`).
+
+The capture layer reads only 15 allow-listed top-level scalar fields
+on the WebUI session JSON, via a single `jq` projection. It does
+**not** read `messages[*]`, `context_messages`, `composer_draft`,
+`pre_compression_snapshot`, `tool_calls`, `compression_anchor_details`,
+`compression_anchor_summary`, `gateway_routing`, `gateway_routing_history`,
+the run/turn journals, `~/.hermes/.env`, `config.yaml`, `auth.json`,
+`SOUL.md`, `MEMORY.md`, `USER.md`, or `state.db.messages`. The privacy
+boundary inherited from Stage 1/2.5 is unchanged.
+
+Opt-out: set `OPENCODEBENCH_SKIP_HERMES_ORCHESTRATOR=1`.
+
+The full schema, allow list, deny list, and worked example are in
+[docs/stage-26-tracking.md](docs/stage-26-tracking.md). The source
+inventory is in
+[docs/stage-26-card-1-inventory.md](docs/stage-26-card-1-inventory.md)
+and the validation report is in
+[docs/stage-26-card-4-validation.md](docs/stage-26-card-4-validation.md).
+
 ## Tracked command
 
 Use `opencodebench-opencode` for any tracked OpenCode work. Raw `opencode`

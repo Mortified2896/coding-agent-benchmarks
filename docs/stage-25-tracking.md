@@ -569,14 +569,29 @@ analytical scores on top of the captured data, on explicit user
 demand and with a separate privacy opt-in. Possible analyses, all
 **deferred**:
 
-- **Orchestrator model backfill.** Read the WebUI session JSON's
+- **Orchestrator model backfill.** ~~Read the WebUI session JSON's
   `model` and `model_provider` fields (currently
   `MiniMax-M3` / `minimax` on this host) and add
   `hermes_orchestrator_model` and
-  `hermes_orchestrator_provider` metadata. Requires
-  relaxing the privacy boundary to read those two fields only.
-- **Reasoning / intelligence level backfill.** Read
-  `gateway_routing` or a future equivalent. Same opt-in.
+  `hermes_orchestrator_provider` metadata.~~
+  **Implemented in Stage 2.6** — see
+  [docs/stage-26-tracking.md](stage-26-tracking.md). The fields are
+  `hermes_orchestrator_model`, `hermes_orchestrator_model_provider`,
+  plus 8 sibling fields. Stage 2.6 reads the WebUI session JSON
+  via a single explicit `jq` projection picking 15 allow-listed
+  top-level scalars, so the privacy boundary is **not** relaxed —
+  the deny list still excludes `messages[*]`, run/turn journals,
+  and the Stage 1/2.5 sensitive files.
+- **Reasoning / intelligence level backfill.** ~~Read
+  `gateway_routing` or a future equivalent.~~ **Partially
+  implemented in Stage 2.6.** Stage 2.6 reads `context_engine` and
+  `compression_anchor_mode` from the WebUI session JSON as a
+  reasoning/intelligence marker. When both are `null`, the literal
+  string `"unavailable"` is recorded. Reading `gateway_routing`
+  is **still deferred** because its contents touch the same
+  surface the user instruction forbade as a subjective label
+  (`routing_policy_followed`); see Stage 2.6's "Stage 3 deferred
+  work" section.
 - **Routing-policy scoring.** Given
   `OPENCODEBENCH_UPSTREAM_ORCHESTRATOR`, the worker `model_id`,
   and the captured `worker_prompt`, score whether the routing
@@ -604,6 +619,10 @@ Stage 3 is a future stage that reads it.
   tracking (the layer Stage 2.5 adds to).
 - [docs/stage-25-card-4-validation.md](stage-25-card-4-validation.md) —
   the four-case validation report for Stage 2.5.
+- [docs/stage-26-tracking.md](stage-26-tracking.md) — Stage 2.6
+  safe Hermes orchestrator metadata capture (sibling stage; adds
+  10 `hermes_orchestrator_*` fields and a dual mirror, no new
+  sidecar).
 - [docs/current-openbench-model-routing.md](current-openbench-model-routing.md) —
   worker selection and provider-failure handling policy.
 - [docs/reconstructing-benchmark-cases.md](reconstructing-benchmark-cases.md) —
