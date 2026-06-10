@@ -52,6 +52,24 @@ Stage 2 env vars (all optional):
                                         set to 1 to skip the evaluation
                                         sidecar (see below).
                                         Default: unset (template is written)
+  OPENCODEBENCH_SKIP_HERMES_TRACE       set to 1 to skip the hermes_trace.json
+                                        sidecar (see Stage 2.5).
+                                        Default: unset (trace is written)
+  OPENCODEBENCH_HERMES_USER_PROMPT_WINDOW_SECONDS
+                                        Override the liveness window for
+                                        pending_user_message (seconds).
+                                        Default: 60
+  OPENCODEBENCH_HERMES_USER_PROMPT_LIVENESS=off
+                                        Disable the liveness check for
+                                        pending_user_message.
+                                        Default: unset (liveness on)
+  OPENCODEBENCH_HERMES_USER_PROMPT_PATH
+                                        Absolute path to a file containing
+                                        the Hermes user prompt.
+                                        Default: unset
+  OPENCODEBENCH_HERMES_USER_PROMPT      Direct env-var source for the Hermes
+                                        user prompt text.
+                                        Default: unset
 
 Evaluation sidecar (Card 5):
   After each run the wrapper reads config/evaluation_template.md (the
@@ -277,6 +295,32 @@ export OPENCODEBENCH_WORKER_MODEL="$resolved_model"
 export OPENCODEBENCH_WORKER_PROVIDER="$provider"
 export OPENCODEBENCH_WORKER_MODEL_SOURCE="$model_source"
 
+# Stage 2.5: extract worker prompt (first positional arg after the subcommand)
+worker_prompt=""
+skip_next=0
+found_subcmd=0
+for arg in "$@"; do
+  if [[ "$skip_next" -eq 1 ]]; then
+    skip_next=0
+    continue
+  fi
+  case "$arg" in
+    --dir|-m|--model) skip_next=1 ;;
+    --dir=*|--model=*) ;;
+    --*) ;;
+    -*) ;;
+    *)
+      if [[ "$found_subcmd" -eq 0 ]]; then
+        found_subcmd=1
+      else
+        worker_prompt="$arg"
+        break
+      fi
+      ;;
+  esac
+done
+export OPENCODEBENCH_WORKER_PROMPT="$worker_prompt"
+
 task_dir=$(
   HARNESS=opencode \
   HARNESS_MODE="$opencodebench_harness_mode" \
@@ -446,6 +490,103 @@ write_evaluation_template() {
   fi
 }
 
+# Stage 2.5: write pointer-only hermes_trace.json sidecar.
+# Reads metadata.json from the just-finished run and writes absolute pointers
+# to the on-disk Hermes session state. No-op when
+# OPENCODEBENCH_SKIP_HERMES_TRACE=1.
+write_hermes_trace() {
+  local task_dir="$1"
+  if [[ "${OPENCODEBENCH_SKIP_HERMES_TRACE:-}" == "1" ]]; then
+    return 0
+  fi
+  local metadata_path="$task_dir/metadata.json"
+  if [[ ! -f "$metadata_path" ]]; then
+    return 0
+  fi
+
+  local captured_at task_id hermes_session_id hermes_session_platform
+  local hermes_home hermes_webui_state_dir hermes_kanban_board hermes_interactive
+  local hermes_user_prompt_source worker_prompt_source
+
+  captured_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  task_id=$(jq -r '.task_id // ""' "$metadata_path")
+  hermes_session_id=$(jq -r '.hermes_session_id // ""' "$metadata_path")
+  hermes_session_platform=$(jq -r '.hermes_session_platform // "unknown"' "$metadata_path")
+  hermes_home=$(jq -r '.hermes_home // ""' "$metadata_path")
+  hermes_webui_state_dir=$(jq -r '.hermes_webui_state_dir // ""' "$metadata_path")
+  hermes_kanban_board=$(jq -r '.hermes_kanban_board // ""' "$metadata_path")
+  hermes_interactive=$(jq -r '.hermes_interactive // null' "$metadata_path")
+  hermes_user_prompt_source=$(jq -r '.hermes_user_prompt_source // "unavailable"' "$metadata_path")
+  worker_prompt_source=$(jq -r '.worker_prompt_source // "unavailable"' "$metadata_path")
+
+  local interface="unknown"
+  if [[ -n "$hermes_session_platform" && "$hermes_session_platform" != "unknown" ]]; then
+    interface="$hermes_session_platform"
+  elif [[ -n "$hermes_session_id" ]]; then
+    interface="webui"
+  fi
+
+  local session_json_path=""
+  local run_journal_dir=""
+  if [[ -n "$hermes_webui_state_dir" && -n "$hermes_session_id" ]]; then
+    session_json_path="${hermes_webui_state_dir}/sessions/${hermes_session_id}.json"
+    run_journal_dir="${hermes_webui_state_dir}/sessions/_run_journal/${hermes_session_id}"
+  fi
+
+  local intervention_mode="unknown"
+  if [[ "$hermes_interactive" == "true" ]]; then
+    intervention_mode="interactive"
+  elif [[ "$hermes_interactive" == "false" ]]; then
+    intervention_mode="background"
+  fi
+
+  local user_prompt_sidecar=""
+  local user_prompt_status="unavailable"
+  if [[ "$hermes_user_prompt_source" != "unavailable" ]]; then
+    user_prompt_sidecar="hermes_user_prompt.md"
+    user_prompt_status="captured"
+  fi
+
+  local worker_prompt_sidecar=""
+  local worker_prompt_status="unavailable"
+  if [[ "$worker_prompt_source" != "unavailable" ]]; then
+    worker_prompt_sidecar="worker_prompt.md"
+    worker_prompt_status="captured"
+  fi
+
+  jq -n \
+    --arg schema_version "stage-2.5/v1" \
+    --arg captured_at "$captured_at" \
+    --arg task_id "$task_id" \
+    --arg interface "$interface" \
+    --arg hermes_home "$hermes_home" \
+    --arg hermes_session_id "$hermes_session_id" \
+    --arg hermes_session_json_path "$session_json_path" \
+    --arg hermes_run_journal_dir "$run_journal_dir" \
+    --arg hermes_kanban_board "$hermes_kanban_board" \
+    --arg intervention_mode "$intervention_mode" \
+    --arg user_prompt_sidecar "$user_prompt_sidecar" \
+    --arg user_prompt_status "$user_prompt_status" \
+    --arg worker_prompt_sidecar "$worker_prompt_sidecar" \
+    --arg worker_prompt_status "$worker_prompt_status" \
+    '{
+      schema_version: $schema_version,
+      captured_at: $captured_at,
+      task_id: $task_id,
+      interface: $interface,
+      hermes_home: $hermes_home,
+      hermes_session_id: $hermes_session_id,
+      hermes_session_json_path: (if $hermes_session_json_path == "" then null else $hermes_session_json_path end),
+      hermes_run_journal_dir: (if $hermes_run_journal_dir == "" then null else $hermes_run_journal_dir end),
+      hermes_kanban_board: $hermes_kanban_board,
+      intervention_mode: $intervention_mode,
+      user_prompt_sidecar: (if $user_prompt_sidecar == "" then null else $user_prompt_sidecar end),
+      user_prompt_status: $user_prompt_status,
+      worker_prompt_sidecar: (if $worker_prompt_sidecar == "" then null else $worker_prompt_sidecar end),
+      worker_prompt_status: $worker_prompt_status
+    }' > "$task_dir/hermes_trace.json"
+}
+
 opencode_exit_code=0
 finished=0
 finish_capture() {
@@ -453,6 +594,7 @@ finish_capture() {
     finished=1
     "$script_dir/capture-task-finish.sh" "$task_dir" "$opencode_exit_code" >/dev/null || true
     write_evaluation_template "$task_dir"
+    write_hermes_trace "$task_dir"
     print -r -- "OpenCodeBench task log directory: $task_dir"
   fi
 }

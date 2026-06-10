@@ -58,6 +58,63 @@ detect_opencodebench_root() {
   return 1
 }
 
+# Stage 2.5: resolve the Hermes user prompt from safe sources.
+# Returns via global variables: hermes_user_prompt_text, hermes_user_prompt_source.
+# Privacy boundary: does NOT read messages[*], run journal, turn journal,
+# ~/.hermes/.env, ~/.hermes/config.yaml, ~/.hermes/auth.json,
+# ~/.hermes/SOUL.md, ~/.hermes/MEMORY.md, ~/.hermes/USER.md, or ~/.hermes/state.db.
+resolve_hermes_user_prompt() {
+  hermes_user_prompt_text=""
+  hermes_user_prompt_source="unavailable"
+
+  # 1. "env" source: OPENCODEBENCH_HERMES_USER_PROMPT (direct text) or
+  #    OPENCODEBENCH_HERMES_USER_PROMPT_PATH (file path)
+  if [[ -n "${OPENCODEBENCH_HERMES_USER_PROMPT:-}" ]]; then
+    hermes_user_prompt_text="${OPENCODEBENCH_HERMES_USER_PROMPT}"
+    hermes_user_prompt_source="env"
+    return 0
+  fi
+  if [[ -n "${OPENCODEBENCH_HERMES_USER_PROMPT_PATH:-}" && -r "${OPENCODEBENCH_HERMES_USER_PROMPT_PATH}" ]]; then
+    hermes_user_prompt_text=$(cat "${OPENCODEBENCH_HERMES_USER_PROMPT_PATH}")
+    hermes_user_prompt_source="env"
+    return 0
+  fi
+
+  # 2. "session_json_pending" source: WebUI session JSON pending_user_message
+  #    with liveness check on pending_started_at
+  if [[ -n "${HERMES_WEBUI_STATE_DIR:-}" && -n "$hermes_session_id" ]]; then
+    local session_json="${HERMES_WEBUI_STATE_DIR}/sessions/${hermes_session_id}.json"
+    if [[ -f "$session_json" && -r "$session_json" ]]; then
+      local msg_valid started_valid
+      msg_valid=$(jq -e '.pending_user_message | type == "string" and length > 0' "$session_json" 2>/dev/null || true)
+      started_valid=$(jq -e '.pending_started_at | type == "number"' "$session_json" 2>/dev/null || true)
+      if [[ "$msg_valid" == "true" && "$started_valid" == "true" ]]; then
+        local live_ok=0
+        if [[ "${OPENCODEBENCH_HERMES_USER_PROMPT_LIVENESS:-}" == "off" ]]; then
+          live_ok=1
+        else
+          local pending_started_at window now delta
+          pending_started_at=$(jq -r '.pending_started_at' "$session_json")
+          window="${OPENCODEBENCH_HERMES_USER_PROMPT_WINDOW_SECONDS:-60}"
+          now=$(date -u +%s)
+          delta=$(( now - pending_started_at ))
+          if (( delta <= window )); then
+            live_ok=1
+          fi
+        fi
+        if [[ "$live_ok" -eq 1 ]]; then
+          hermes_user_prompt_text=$(jq -r '.pending_user_message' "$session_json")
+          hermes_user_prompt_source="session_json_pending"
+          return 0
+        fi
+      fi
+    fi
+  fi
+
+  # 3. "unavailable" — anything else. No fallback reads.
+  return 0
+}
+
 default_log_root() {
   local script_dir="$1"
   local project_root
@@ -106,6 +163,24 @@ hermes_profile="${HERMES_PROFILE:-}"
 hermes_memory_mode="${HERMES_MEMORY_MODE:-${OPENCODEBENCH_HERMES_MEMORY_MODE:-}}"
 hermes_memory_enabled="${HERMES_MEMORY_ENABLED:-}"
 hermes_user_profile_enabled="${HERMES_USER_PROFILE_ENABLED:-}"
+# Stage 2.5: 8 new hermes context env vars
+hermes_session_id="${HERMES_SESSION_ID:-}"
+hermes_session_chat_id="${HERMES_SESSION_CHAT_ID:-}"
+hermes_session_platform="${HERMES_SESSION_PLATFORM:-unknown}"
+hermes_home="${HERMES_HOME:-}"
+hermes_webui_state_dir="${HERMES_WEBUI_STATE_DIR:-}"
+hermes_kanban_board="${HERMES_KANBAN_BOARD:-}"
+hermes_interactive="null"
+if [[ "${HERMES_INTERACTIVE:-}" == "1" ]]; then
+  hermes_interactive="true"
+elif [[ "${HERMES_INTERACTIVE:-}" == "0" ]]; then
+  hermes_interactive="false"
+fi
+# hermes_capture_source: "env" if any HERMES_* env is non-empty, else "none"
+hermes_capture_source="none"
+if [[ -n "${HERMES_SESSION_ID:-}" || -n "${HERMES_SESSION_CHAT_ID:-}" || -n "${HERMES_SESSION_PLATFORM:-}" || -n "${HERMES_HOME:-}" || -n "${HERMES_WEBUI_STATE_DIR:-}" || -n "${HERMES_KANBAN_BOARD:-}" || -n "${HERMES_EXECUTABLE_PATH:-}" || -n "${HERMES_VERSION:-}" || -n "${HERMES_PROFILE:-}" || -n "${HERMES_MEMORY_MODE:-}" || -n "${HERMES_MEMORY_ENABLED:-}" || -n "${HERMES_USER_PROFILE_ENABLED:-}" || -n "${HERMES_INTERACTIVE:-}" ]]; then
+  hermes_capture_source="env"
+fi
 model="${MODEL:-${OPENCODE_MODEL:-unknown}}"
 reasoning_level="${REASONING_LEVEL:-}"
 
@@ -191,6 +266,45 @@ git -C "$git_root" diff --stat > "$task_dir/git-diff-stat-before.txt"
 git -C "$git_root" diff --numstat > "$task_dir/git-diff-numstat-before.txt"
 git_status_before=$(git -C "$git_root" status --short)
 
+# Stage 2.5: resolve Hermes user prompt
+resolve_hermes_user_prompt
+
+# Stage 2.5: worker prompt from the wrapper env (set by opencodebench-opencode)
+worker_prompt="${OPENCODEBENCH_WORKER_PROMPT:-}"
+worker_prompt_source="unavailable"
+if [[ -n "$worker_prompt" ]]; then
+  worker_prompt_source="argv"
+fi
+
+# Stage 2.5: write sidecar files and compute hashes
+hermes_user_prompt_path=""
+hermes_user_prompt_sha256=""
+hermes_user_prompt_chars=0
+if [[ "$hermes_user_prompt_source" != "unavailable" && -n "$hermes_user_prompt_text" ]]; then
+  printf '%s' "$hermes_user_prompt_text" > "$task_dir/hermes_user_prompt.md"
+  hermes_user_prompt_path="hermes_user_prompt.md"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    hermes_user_prompt_sha256=$(shasum -a 256 "$task_dir/hermes_user_prompt.md" | awk '{print $1}')
+  else
+    hermes_user_prompt_sha256=$(sha256sum "$task_dir/hermes_user_prompt.md" | awk '{print $1}')
+  fi
+  hermes_user_prompt_chars=$(wc -c < "$task_dir/hermes_user_prompt.md" | tr -d ' ')
+fi
+
+worker_prompt_path=""
+worker_prompt_sha256=""
+worker_prompt_chars=0
+if [[ "$worker_prompt_source" != "unavailable" && -n "$worker_prompt" ]]; then
+  printf '%s' "$worker_prompt" > "$task_dir/worker_prompt.md"
+  worker_prompt_path="worker_prompt.md"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    worker_prompt_sha256=$(shasum -a 256 "$task_dir/worker_prompt.md" | awk '{print $1}')
+  else
+    worker_prompt_sha256=$(sha256sum "$task_dir/worker_prompt.md" | awk '{print $1}')
+  fi
+  worker_prompt_chars=$(wc -c < "$task_dir/worker_prompt.md" | tr -d ' ')
+fi
+
 jq -n \
   --arg task_id "$task_id" \
   --arg timestamp "$timestamp_start" \
@@ -238,6 +352,22 @@ jq -n \
   --arg opencodebench_repo_root "$opencodebench_repo_root" \
   --arg opencodebench_task_dir "$opencodebench_task_dir" \
   --arg opencodebench_git_commit_before "$opencodebench_git_commit_before" \
+  --arg hermes_session_id "$hermes_session_id" \
+  --arg hermes_session_chat_id "$hermes_session_chat_id" \
+  --arg hermes_session_platform "$hermes_session_platform" \
+  --arg hermes_home "$hermes_home" \
+  --arg hermes_webui_state_dir "$hermes_webui_state_dir" \
+  --arg hermes_kanban_board "$hermes_kanban_board" \
+  --argjson hermes_interactive "$hermes_interactive" \
+  --arg hermes_capture_source "$hermes_capture_source" \
+  --arg hermes_user_prompt_source "$hermes_user_prompt_source" \
+  --arg hermes_user_prompt_path "$hermes_user_prompt_path" \
+  --arg hermes_user_prompt_sha256 "$hermes_user_prompt_sha256" \
+  --argjson hermes_user_prompt_chars "$hermes_user_prompt_chars" \
+  --arg worker_prompt_source "$worker_prompt_source" \
+  --arg worker_prompt_path "$worker_prompt_path" \
+  --arg worker_prompt_sha256 "$worker_prompt_sha256" \
+  --argjson worker_prompt_chars "$worker_prompt_chars" \
   '{
     task_id: $task_id,
     timestamp: $timestamp,
@@ -281,6 +411,22 @@ jq -n \
     git_diff_patch_before_path: $git_diff_patch_before_path,
     git_diff_stat_before_path: $git_diff_stat_before_path,
     git_diff_numstat_before_path: $git_diff_numstat_before_path,
+    hermes_session_id: $hermes_session_id,
+    hermes_session_chat_id: $hermes_session_chat_id,
+    hermes_session_platform: $hermes_session_platform,
+    hermes_home: $hermes_home,
+    hermes_webui_state_dir: $hermes_webui_state_dir,
+    hermes_kanban_board: $hermes_kanban_board,
+    hermes_interactive: $hermes_interactive,
+    hermes_capture_source: $hermes_capture_source,
+    hermes_user_prompt_source: $hermes_user_prompt_source,
+    hermes_user_prompt_path: (if $hermes_user_prompt_path == "" then null else $hermes_user_prompt_path end),
+    hermes_user_prompt_sha256: (if $hermes_user_prompt_sha256 == "" then null else $hermes_user_prompt_sha256 end),
+    hermes_user_prompt_chars: $hermes_user_prompt_chars,
+    worker_prompt_source: $worker_prompt_source,
+    worker_prompt_path: (if $worker_prompt_path == "" then null else $worker_prompt_path end),
+    worker_prompt_sha256: (if $worker_prompt_sha256 == "" then null else $worker_prompt_sha256 end),
+    worker_prompt_chars: $worker_prompt_chars,
     "opencodebench.session_id": $opencodebench_session_id,
     "opencodebench.project_id": $opencodebench_project_id,
     "opencodebench.repo_root": $opencodebench_repo_root,
@@ -296,6 +442,20 @@ jq -n \
       task_type_status: $task_type_status,
       timing: {
         start_unix_seconds: $opencodebench_start_unix_seconds
+      },
+      trace: {
+        hermes_user_prompt: (if $hermes_user_prompt_source == "unavailable" then null else {
+          source: $hermes_user_prompt_source,
+          sha256: $hermes_user_prompt_sha256,
+          chars: $hermes_user_prompt_chars,
+          sidecar: $hermes_user_prompt_path
+        } end),
+        worker_prompt: (if $worker_prompt_source == "unavailable" then null else {
+          source: $worker_prompt_source,
+          sha256: $worker_prompt_sha256,
+          chars: $worker_prompt_chars,
+          sidecar: $worker_prompt_path
+        } end)
       }
     }
   }' > "$task_dir/metadata.json"
