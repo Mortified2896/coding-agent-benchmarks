@@ -464,6 +464,11 @@ relative to the cost of switching contexts.
 
 - [docs/task-capture-wrapper.md](task-capture-wrapper.md) — Stage 1
   wrapper docs (the foundation this Stage 2 doc layers on).
+- [docs/stage-25-tracking.md](stage-25-tracking.md) — Stage 2.5
+  raw Hermes orchestration trace capture (the layer that adds
+  Hermes context fields, best-effort `hermes_user_prompt.md`
+  sidecar, reliable `worker_prompt.md` sidecar, and a
+  pointer-only `hermes_trace.json` sidecar).
 - [docs/current-openbench-model-routing.md](current-openbench-model-routing.md) —
   worker selection and provider-failure handling policy.
 - [docs/stage-2-card-6-validation.md](stage-2-card-6-validation.md) —

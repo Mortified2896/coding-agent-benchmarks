@@ -439,6 +439,129 @@ The benchmark row is the unit of analysis. Each row is one run
   intentional — the wrapper sees only what was actually passed to
   `opencode run`.
 
+## Schema for implementers
+
+This section is the implementation contract for Card 3. It is
+intentionally more prescriptive than the design sections above.
+
+### Metadata `jq` arg-passes
+
+The wrapper's `capture-task-start.sh` adds the following 8
+top-level `hermes_*` env-derived fields and 6 top-level prompt
+fields to the `jq -n` call that builds `metadata.json`. The full
+`jq` arg list is:
+
+```sh
+--arg hermes_session_id              "$hermes_session_id"
+--arg hermes_session_chat_id         "$hermes_session_chat_id"
+--arg hermes_session_platform        "$hermes_session_platform"
+--arg hermes_home                    "$hermes_home"
+--arg hermes_webui_state_dir         "$hermes_webui_state_dir"
+--arg hermes_kanban_board            "$hermes_kanban_board"
+--argjson hermes_interactive         "$hermes_interactive"
+--arg hermes_capture_source          "$hermes_capture_source"
+--arg hermes_user_prompt_source      "$hermes_user_prompt_source"
+--arg hermes_user_prompt_path        "$hermes_user_prompt_path"
+--arg hermes_user_prompt_sha256      "$hermes_user_prompt_sha256"
+--argjson hermes_user_prompt_chars   "$hermes_user_prompt_chars"
+--arg worker_prompt_source           "$worker_prompt_source"
+--arg worker_prompt_path             "$worker_prompt_path"
+--arg worker_prompt_sha256           "$worker_prompt_sha256"
+--argjson worker_prompt_chars        "$worker_prompt_chars"
+```
+
+The corresponding `jq` output additions are mirrored at the top
+level and grouped under `opencodebench.trace.*` per the Stage 1/2
+dual-location convention.
+
+### Env-var precedence
+
+The wrapper tries the configured sources in this strict order. The
+first non-empty match wins; the wrapper does **not** fall through
+to a less-safe source.
+
+1. `OPENCODEBENCH_HERMES_USER_PROMPT` (env, direct text) or
+   `OPENCODEBENCH_HERMES_USER_PROMPT_PATH` (env, path to a file).
+2. WebUI session JSON `pending_user_message`, with a 60-second
+   liveness check on `pending_started_at`.
+3. `unavailable` (recorded honestly; no fallback read).
+
+The worker prompt is read from the wrapper's own positional
+`"$@"` argument list. The wrapper records the first non-flag
+positional argument after the `run` subcommand as the worker
+prompt. If no positional argument is present (e.g. an
+`opencode attach` call), the source is `unavailable` and the
+sidecar is not written.
+
+### Sidecar file paths
+
+All sidecars are written **relative to `<task_dir>/`**:
+
+| Sidecar | Absolute path | Conditional? |
+|---|---|---|
+| `hermes_trace.json` | `<task_dir>/hermes_trace.json` | Skipped if `OPENCODEBENCH_SKIP_HERMES_TRACE=1` |
+| `hermes_user_prompt.md` | `<task_dir>/hermes_user_prompt.md` | Skipped when `hermes_user_prompt_source="unavailable"` |
+| `worker_prompt.md` | `<task_dir>/worker_prompt.md` | Skipped when `worker_prompt_source="unavailable"` |
+
+The `*_path` fields in `metadata.json` are **relative** to
+`<task_dir>/` (e.g. `hermes_user_prompt.md`), matching the Stage 1
+convention of `git_diff_patch_path` etc. The `hermes_trace.json`
+file uses **absolute** paths inside its body, because the
+trace-sidecar is itself a pointer to other locations.
+
+### `task.md` stub fix
+
+The Stage 1 wrapper writes a stub `task.md` when no startup prompt
+file is passed. On the current OpenCode build, a long positional
+prompt is sometimes ignored and `task.md` shows a "No startup
+prompt was provided" stub even though opencode did receive and
+act on the prompt. Stage 2.5 does not change `task.md`; the
+`worker_prompt.md` sidecar is the reliable worker-prompt record.
+A future Card may also fix the `task.md` stub by writing
+`worker_prompt.md` content to `task.md` when OpenCode fails to
+do so; that is out of scope for Stage 2.5.
+
+## Privacy boundary (do-not-cross)
+
+The wrapper's Stage 2.5 code path is allowed to read **only** the
+following Hermes surfaces. Anything else is a hard-don't.
+
+| Surface | Read allowed? | Why |
+|---|---|---|
+| `HERMES_*` env vars (17 known) | yes | Inherited from the process env. No filesystem access. |
+| WebUI session JSON `pending_user_message` | yes, with 60s liveness | Ephemeral; cleared at first assistant token. |
+| WebUI session JSON `pending_started_at` | yes, paired with the above | Used for the liveness check. |
+| `~/.hermes/webui/sessions/<id>.json` | yes, only for the two fields above | Pointer-only access; no other field is read. |
+| `messages[*].content` | **NO** | Would leak the full Hermes transcript. Stage 2 privacy boundary. |
+| `~/.hermes/webui/sessions/_run_journal/...` | **NO** | Contains the full Hermes tool-call history. |
+| `~/.hermes/webui/sessions/_turn_journal/...` | **NO** | Same. |
+| `~/.hermes/.env` | **NO** | Stage 1 privacy boundary. Contains API keys. |
+| `~/.hermes/config.yaml` | **NO** | Stage 1 privacy boundary. Contains provider config. |
+| `~/.hermes/auth.json` | **NO** | Stage 1 privacy boundary. Contains auth tokens. |
+| `~/.hermes/SOUL.md`, `MEMORY.md`, `USER.md` | **NO** | Stage 1 privacy boundary. Memory/profile data. |
+| `~/.hermes/state.db` (sessions, messages) | **NO** | SQLite store of the full transcript. |
+| Orchestrator model name (e.g. `MiniMax-M3`) | **NO** | Not in `HERMES_*` env; would require reading the session JSON. |
+| Reasoning / intelligence level | **NO** | Same. |
+
+The list is normative. A reviewer can reject a Card 3 PR that
+adds a read not on this list without updating both this section
+and the implementation.
+
+## Validation matrix
+
+Card 4 fills in this matrix. The expected outcomes are:
+
+| Case | Caller | Wrapper invocation timing | `hermes_capture_source` | `hermes_user_prompt_source` | `worker_prompt_source` |
+|---|---|---|---|---|---|
+| 1 | WebUI (this session) | Inside 60s of prompt submit | `env` | `session_json_pending` | `argv` |
+| 2 | WebUI (this session) | More than 60s after prompt submit | `env` | `unavailable` | `argv` |
+| 3 | Plain shell (no `HERMES_*` env) | n/a | `none` | `unavailable` | `argv` |
+| 4 | WebUI with no positional prompt | n/a | `env` | (case 1 or 2) | `unavailable` |
+
+Card 4 writes the actual run log into
+`docs/stage-25-card-4-validation.md` and references the task
+directories by `task_id`.
+
 ## See also
 
 - [docs/task-capture-wrapper.md](task-capture-wrapper.md) — Stage 1

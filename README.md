@@ -185,6 +185,21 @@ repository only. The wrapper does **not** capture:
 - `SOUL.md`, `MEMORY.md`, `USER.md`, `~/.hermes/config.yaml`, or `~/.hermes/.env`.
 - OpenCode session transcripts or auth files.
 - Full private remote URLs (only the local path is captured).
+- Full Hermes session transcripts, `messages[*]`, run journals, turn
+  journals, or `~/.hermes/state.db` (Stage 2.5 — see
+  [docs/stage-25-tracking.md](docs/stage-25-tracking.md) for the
+  explicit do-not-cross list).
+- Any interpretive labels (e.g. `routing_policy_followed`,
+  `delegated_to_opencode`, `user_intervention_needed`); the wrapper
+  captures raw evidence only.
+
+Stage 2.5 adds three new sidecar files per task: `hermes_trace.json`
+(pointer-only to on-disk Hermes state), `hermes_user_prompt.md`
+(best-effort; the wrapper gives up honestly if the prompt is not
+safely available), and `worker_prompt.md` (the OpenCode worker
+prompt, reliable). See [docs/stage-25-tracking.md](docs/stage-25-tracking.md)
+for the full schema, sidecar formats, source-resolution rules, and
+worked examples.
 
 Captured log files may still contain prompts, diffs, metadata, local paths,
 and filenames, so keep them ignored and private. The wrapper refuses to write
