@@ -33,6 +33,36 @@ Future stages may generalize the same tracking model to those surfaces, but
 Stage 1 is intentionally narrow so the capture contract is stable before
 broader wrappers are added.
 
+## Stage 2.5: Hermes orchestration trace
+
+Stage 2.5 captures **raw evidence** about the Hermes orchestration
+context that triggered each tracked OpenCode run. The wrapper does not
+read the Hermes session transcript, the run journal, the turn journal,
+or any auth/config/memory file. It captures only:
+
+- Eight env-derived `hermes_*` context fields when the wrapper is
+  invoked from Hermes (`HERMES_SESSION_ID`, `HERMES_SESSION_PLATFORM`,
+  `HERMES_HOME`, `HERMES_WEBUI_STATE_DIR`, `HERMES_KANBAN_BOARD`, plus
+  three more).
+- A pointer-only `hermes_trace.json` sidecar naming the on-disk
+  Hermes state the run came from.
+- A best-effort `hermes_user_prompt.md` sidecar (the orchestrator
+  input). Recorded as `hermes_user_prompt_source="unavailable"`
+  honestly when not safely available.
+- A reliable `worker_prompt.md` sidecar (the OpenCode worker input,
+  captured from the wrapper's own positional argument). Always
+  written when a positional prompt is present.
+
+The full schema, sidecar formats, source-resolution rules, the 60-second
+liveness check, the explicit privacy boundary, and the worked
+examples are in
+[docs/stage-25-tracking.md](docs/stage-25-tracking.md). The
+four-case validation report is in
+[docs/stage-25-card-4-validation.md](docs/stage-25-card-4-validation.md).
+Stage 2.5 is **observation only**; any interpretive analysis
+(routing-policy scoring, intervention counts, etc.) is deferred to a
+future Stage 3 and is explicitly **not** in the captured data.
+
 ## Tracked command
 
 Use `opencodebench-opencode` for any tracked OpenCode work. Raw `opencode`

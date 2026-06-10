@@ -474,6 +474,11 @@ relative to the cost of switching contexts.
 - [docs/stage-2-card-6-validation.md](stage-2-card-6-validation.md) —
   the Card 6 validation report; the source of the worked example
   above and the per-field PASS/FAIL matrix.
+- [docs/stage-25-tracking.md](stage-25-tracking.md) — Stage 2.5
+  raw Hermes orchestration trace capture (the layer that adds
+  Hermes context fields, best-effort `hermes_user_prompt.md`
+  sidecar, reliable `worker_prompt.md` sidecar, and a
+  pointer-only `hermes_trace.json` sidecar).
 - [docs/reconstructing-benchmark-cases.md](reconstructing-benchmark-cases.md) —
   how to reconstruct benchmark cases from the captured metadata.
 - [docs/kanban-board-consolidation.md](kanban-board-consolidation.md) —

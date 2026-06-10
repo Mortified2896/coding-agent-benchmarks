@@ -562,12 +562,48 @@ Card 4 writes the actual run log into
 `docs/stage-25-card-4-validation.md` and references the task
 directories by `task_id`.
 
+## Stage 3 analysis path (deferred)
+
+Stage 2.5 captures raw evidence only. A future Stage 3 could compute
+analytical scores on top of the captured data, on explicit user
+demand and with a separate privacy opt-in. Possible analyses, all
+**deferred**:
+
+- **Orchestrator model backfill.** Read the WebUI session JSON's
+  `model` and `model_provider` fields (currently
+  `MiniMax-M3` / `minimax` on this host) and add
+  `hermes_orchestrator_model` and
+  `hermes_orchestrator_provider` metadata. Requires
+  relaxing the privacy boundary to read those two fields only.
+- **Reasoning / intelligence level backfill.** Read
+  `gateway_routing` or a future equivalent. Same opt-in.
+- **Routing-policy scoring.** Given
+  `OPENCODEBENCH_UPSTREAM_ORCHESTRATOR`, the worker `model_id`,
+  and the captured `worker_prompt`, score whether the routing
+  policy in
+  [docs/current-openbench-model-routing.md](current-openbench-model-routing.md)
+  was followed. This is an interpretive label and **must not** be
+  added to the raw data; it is computed by Stage 3 only.
+- **Intervention counts.** Given
+  `hermes_user_prompt_source`, `hermes_user_prompt_chars`, and
+  the wrapper invocation timing, count turns that needed
+  user intervention. Again, interpretive; not in raw data.
+- **Cross-run join keys.** Use `hermes_session_id` +
+  `worker_prompt_sha256` to group runs by Hermes session, then
+  compute per-session aggregate statistics (e.g. success rate
+  per session, average `duration_seconds` per session).
+
+None of these are implemented. Stage 2.5 is the foundation;
+Stage 3 is a future stage that reads it.
+
 ## See also
 
 - [docs/task-capture-wrapper.md](task-capture-wrapper.md) — Stage 1
   wrapper docs (the foundation this Stage 2.5 doc layers on).
 - [docs/stage-2-tracking.md](stage-2-tracking.md) — Stage 2 worker
   tracking (the layer Stage 2.5 adds to).
+- [docs/stage-25-card-4-validation.md](stage-25-card-4-validation.md) —
+  the four-case validation report for Stage 2.5.
 - [docs/current-openbench-model-routing.md](current-openbench-model-routing.md) —
   worker selection and provider-failure handling policy.
 - [docs/reconstructing-benchmark-cases.md](reconstructing-benchmark-cases.md) —
