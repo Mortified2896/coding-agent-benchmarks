@@ -34,10 +34,19 @@ A single canonical board exists now:
   assignee. The original body and any original comments follow
   the provenance header verbatim.
 
-The two old boards are NOT deleted. They are left in place as
-frozen historical records, with a single frozen-board marker comment
-on the first task of each so future readers know where the live work
-has moved.
+The two old boards were originally NOT deleted. They were left
+in place as frozen historical records, with a single frozen-board
+marker comment on the first task of each board.
+
+**Update 2026-06-10 (same day):** the user subsequently requested
+a hard-delete. Both old boards were removed via
+`hermes kanban boards rm <slug> --delete`. The SQLite databases
+are gone, irreversibly. See the "What is NOT preserved after the
+hard-delete" section below for what this costs.
+
+The canonical `opencodebench` board is now the only source of
+truth for OpenCodeBench project tasks. New tasks go on
+`opencodebench` directly. There is no per-stage board.
 
 ## Migration map — Stage 1 (19 tasks)
 
@@ -82,13 +91,45 @@ has moved.
 hermes kanban --board opencodebench list
 hermes kanban --board opencodebench stats
 
-# Confirm the old boards are still present but frozen (1 comment each)
-hermes kanban --board opencodebench-stage-1 show t_7ec2796a
-hermes kanban --board opencodebench-stage-2-tracking show t_83e31bb6
-
 # Spot-check a migrated task's provenance header
 hermes kanban --board opencodebench show t_6a94b4ae   # was t_83e31bb6
+
+# Confirm the old boards are gone (this should error)
+hermes kanban --board opencodebench-stage-1 list
+hermes kanban --board opencodebench-stage-2-tracking list
 ```
+
+## What is NOT preserved after the hard-delete
+
+The hard-delete of the two old boards removed the original SQLite
+`kanban.db` files. The canonical board has 26 *new* tasks that
+replicate the original content's static parts, but it does not
+replicate:
+
+- The full `events` log of each original task (created, promoted,
+  blocked, run N completed, etc.). The canonical board has its
+  own events for the new tasks, but those don't include the
+  original lifecycle.
+- The original dependency links between tasks (e.g. `Decision 1`
+  on `opencodebench-stage-1` had a `BLOCKED: t_acc7cf4a
+  t_a12f0946` parent dependency). These are flattened into prose
+  in the new bodies.
+- The original `workspace` / dispatch-time metadata as it was
+  enforced at run time. The `original_workspace` field in the
+  provenance header records what was *requested* but not what
+  actually happened during each run.
+
+What IS preserved on the canonical board and is sufficient for
+the project's needs going forward:
+
+- Original title, body, and comments of every task (verbatim).
+- Original status, created-at, completed-at (in the provenance
+  header).
+- Original task id (in the provenance header's `original_id`
+  field, and in the `Migration map` tables above).
+- The full `git` history of the 9 Stage 2 commits, which contains
+  the actual code, doc, and test artifacts that the tasks
+  describe.
 
 ## Date and operator
 
@@ -102,5 +143,6 @@ hermes kanban --board opencodebench show t_6a94b4ae   # was t_83e31bb6
 
 For Stage 3 and beyond, the canonical `opencodebench` board is the
 only board for this project. New cards are created on it directly.
-The old per-stage boards are kept in place for historical reference;
-do not add new tasks to them.
+The old per-stage boards are gone (hard-deleted on 2026-06-10);
+the migration map and per-task provenance headers in this document
+are the only remaining record of them.

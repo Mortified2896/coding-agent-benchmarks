@@ -392,12 +392,14 @@ For Stage 3 and beyond, new tasks go on `opencodebench` directly.
 There is no per-stage board.
 
 The two original per-stage boards (`opencodebench-stage-1` and
-`opencodebench-stage-2-tracking`) are kept in place as frozen
-historical records. They are not deleted. Each has a single
-frozen-board marker comment on its first task pointing future
-readers to the canonical board. The migration map is in
+`opencodebench-stage-2-tracking`) were hard-deleted on 2026-06-10
+via `hermes kanban boards rm <slug> --delete`. The audit trail
+for those 26 tasks now lives in this repo: the migration map and
+per-task provenance headers in
 [docs/kanban-board-consolidation.md](kanban-board-consolidation.md).
-Do not add new tasks to the frozen boards.
+New work for OpenCodeBench goes on the `opencodebench` board only.
+See the consolidation doc for the explicit list of what is and
+isn't preserved after the hard-delete.
 
 ### Why one board, not per-stage
 
