@@ -8,4 +8,5 @@
 results/
 worktrees/
 benchmark-cases/
+.hermes/
 *.dSYM/

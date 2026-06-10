@@ -377,31 +377,42 @@ analysis that attributes code work to the requested model.
 
 ## Kanban boards and project workflow
 
-The Stage 1 and Stage 2 work is tracked on dedicated Kanban boards
-within this project:
+This project uses **one canonical Kanban board**:
 
-- `opencodebench-stage-1` — 19 cards, all complete. Archived/frozen
-  in place; not deleted, not modified.
-- `opencodebench-stage-2-tracking` — 7 cards, all complete after this
-  card ships. Will be archived/frozen in place when Stage 3 starts.
+- `opencodebench` — 26 done tasks as of the Stage 2 cleanup,
+  covering all of Stage 1 (19) and Stage 2 (7). Title prefixes
+  `[Stage 1]` and `[Stage 2]` make the original stage obvious at a
+  glance. The body of each migrated task includes a provenance
+  header with the original board slug, the original task id, the
+  original status, the original created/completed timestamps, the
+  original workspace, and the original assignee. The original
+  body and any original comments follow the header verbatim.
 
-For future stages, the project can probably use **one canonical
-Kanban board with archived/frozen older tasks** instead of creating
-a new board per stage. The current per-stage boards worked for two
-stages, but the cost is:
+For Stage 3 and beyond, new tasks go on `opencodebench` directly.
+There is no per-stage board.
 
-- The `hermes kanban boards switch` and `--board <name>` flag dance
-  is easy to forget (switch is per-shell only; pass `--board` to
-  every command).
-- Cross-stage "what did Stage 1 do that Stage 2 depends on" lookups
-  require inspecting two boards instead of one with a "frozen"
-  column.
-- The list output is dominated by old done tasks.
+The two original per-stage boards (`opencodebench-stage-1` and
+`opencodebench-stage-2-tracking`) are kept in place as frozen
+historical records. They are not deleted. Each has a single
+frozen-board marker comment on its first task pointing future
+readers to the canonical board. The migration map is in
+[docs/kanban-board-consolidation.md](kanban-board-consolidation.md).
+Do not add new tasks to the frozen boards.
 
-A single canonical board with a `frozen` column or a "show only
-active" filter would be cleaner. This is a recommendation, not a
-refactor this card will make; mention it for the next time the
-project revisits its tracking structure.
+### Why one board, not per-stage
+
+Two per-stage boards worked for two stages but the costs were:
+
+- `hermes kanban boards switch` is per-shell only and the
+  `--board <slug>` flag is easy to forget on long commands.
+- Cross-stage "what did Stage 1 do that Stage 2 depends on"
+  lookups require inspecting two boards instead of one.
+- The list output of each board was dominated by old done tasks.
+
+A single canonical board with title prefixes for stage makes the
+old work visible without forcing a second board switch. The cost is
+one shared list, but that list is short (26 tasks) and grows slowly
+relative to the cost of switching contexts.
 
 ## Known limitations
 
@@ -421,6 +432,24 @@ project revisits its tracking structure.
   attributes code work to a model. Card 5 and Card 6 worker runs
   are benchmark-valid. Comments on Kanban cards `t_68969aad`
   (Card 3) and `t_7554ba5e` (Card 4) document this.
+- **Commit category reference for the 8 commits that make up Stage
+  2 plus the routing-policy update** (commit hashes in
+  `git log --oneline origin/main..HEAD`):
+  - **Cards 5 and 6 include benchmark-valid worker/validation
+    traces.** `464cb81` (Card 5) has 3 implementation runs and 2
+    review runs on disk in `.local/coding-agent-task-logs/2026/06/`;
+    `c0cb726` (Card 6) indexes 4 wrapper validation runs that are
+    themselves benchmark-valid.
+  - **Card 7 and the routing-policy update are direct
+    documentation commits, acceptable under the routing policy
+    but not worker implementation traces.** `e1808d4`
+    (`docs/current-openbench-model-routing.md`) and `802e077`
+    (`docs/stage-2-tracking.md`) are doc-only commits by Hermes
+    with no worker trace behind them. They are not "benchmark-
+    valid" in the sense of carrying a worker model_id.
+  - **Cards 1-4 are direct-Hermes code commits, also not
+    benchmark-valid.** `03ed180`, `5d81d4d`, `795dbc9`, `f12ba19`.
+    Same rationale as the Card 3 / Card 4 bullet above.
 - **`task.md` content depends on the opencode build.** The wrapper
   captures whatever the opencode CLI writes there; on the current
   build, a long positional prompt is sometimes ignored and `task.md`
@@ -440,3 +469,6 @@ project revisits its tracking structure.
   above and the per-field PASS/FAIL matrix.
 - [docs/reconstructing-benchmark-cases.md](reconstructing-benchmark-cases.md) —
   how to reconstruct benchmark cases from the captured metadata.
+- [docs/kanban-board-consolidation.md](kanban-board-consolidation.md) —
+  the Stage 1 + Stage 2 → `opencodebench` board migration record,
+  with the full task-id mapping table.
