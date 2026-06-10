@@ -125,12 +125,55 @@ resolve_hermes_orchestrator_metadata() {
     return 0
   fi
 
+  # Stage 2.7: normalize a reasoning-level string (bash-compatible)
+  _horml_normalize_27() {
+    local s="${1:-}"
+    # Trim leading/trailing whitespace
+    s="${s#"${s%%[![:space:]]*}"}"
+    s="${s%"${s##*[![:space:]]}"}"
+    # Lowercase
+    s="$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]')"
+    # Spaces to underscores
+    s="${s// /_}"
+    printf '%s' "$s"
+  }
+
   local session_json=""
   if [[ -n "${HERMES_WEBUI_STATE_DIR:-}" && -n "${HERMES_SESSION_ID:-}" ]]; then
     session_json="${HERMES_WEBUI_STATE_DIR}/sessions/${HERMES_SESSION_ID}.json"
   fi
 
+  # Stage 2.7: resolve reasoning level via a 4-step precedence chain.
+  _horml_effort_raw=""
+  _horml_state_db_readable=0
+  _horml_webui_raw=""
+  if [[ -n "${HERMES_HOME:-}" && -n "${HERMES_SESSION_ID:-}" && -f "${HERMES_HOME}/state.db" ]]; then
+    _horml_effort_raw=$(sqlite3 -separator $'\t' "${HERMES_HOME}/state.db" \
+      "SELECT json_extract(model_config, '\$.reasoning_config.effort') \
+       FROM sessions WHERE id = '${HERMES_SESSION_ID}' LIMIT 1;" 2>/dev/null || true)
+    if [[ -n "$_horml_effort_raw" && "$_horml_effort_raw" != $'\t' ]]; then
+      _horml_state_db_readable=1
+    fi
+  fi
+
+  if [[ "${OPENCODEBENCH_SKIP_HERMES_REASONING:-}" == "1" ]]; then
+    hermes_orchestrator_reasoning_level="unavailable"
+    hermes_orchestrator_reasoning_level_source="skipped"
+    hermes_orchestrator_reasoning_level_raw=""
+    return 0
+  fi
+
   if [[ -z "$session_json" || ! -f "$session_json" || ! -r "$session_json" ]]; then
+    # Stage 2.7: try state.db before giving up
+    if [[ -n "${OPENCODEBENCH_HERMES_REASONING_LEVEL:-}" ]]; then
+      hermes_orchestrator_reasoning_level=$(_horml_normalize_27 "$OPENCODEBENCH_HERMES_REASONING_LEVEL")
+      hermes_orchestrator_reasoning_level_source="env_override"
+      hermes_orchestrator_reasoning_level_raw="$_horml_effort_raw"
+    elif [[ "$_horml_state_db_readable" == "1" ]]; then
+      hermes_orchestrator_reasoning_level=$(_horml_normalize_27 "$_horml_effort_raw")
+      hermes_orchestrator_reasoning_level_source="state_db"
+      hermes_orchestrator_reasoning_level_raw="$_horml_effort_raw"
+    fi
     local _has_hermes=0 _v
     for _v in HERMES_SESSION_ID HERMES_HOME HERMES_WEBUI_STATE_DIR \
               HERMES_KANBAN_BOARD HERMES_INTERACTIVE HERMES_PROFILE \
@@ -170,13 +213,33 @@ resolve_hermes_orchestrator_metadata() {
   hermes_orchestrator_workspace=$(jq -r '.workspace // ""' <<<"$projection")
   hermes_orchestrator_worktree_path=$(jq -r '.worktree_path // null' <<<"$projection")
 
-  local ce cam
-  ce=$(jq -r '.context_engine // ""' <<<"$projection")
-  cam=$(jq -r '.compression_anchor_mode // ""' <<<"$projection")
-  if [[ -n "$ce" && "$ce" != "null" ]]; then
-    hermes_orchestrator_reasoning_level="$ce"
-  elif [[ -n "$cam" && "$cam" != "null" ]]; then
-    hermes_orchestrator_reasoning_level="$cam"
+  # Stage 2.7 precedence chain.
+  if [[ -n "${OPENCODEBENCH_HERMES_REASONING_LEVEL:-}" ]]; then
+    hermes_orchestrator_reasoning_level=$(_horml_normalize_27 "$OPENCODEBENCH_HERMES_REASONING_LEVEL")
+    hermes_orchestrator_reasoning_level_source="env_override"
+    hermes_orchestrator_reasoning_level_raw="$_horml_effort_raw"
+  elif [[ "$_horml_state_db_readable" == "1" ]]; then
+    hermes_orchestrator_reasoning_level=$(_horml_normalize_27 "$_horml_effort_raw")
+    hermes_orchestrator_reasoning_level_source="state_db"
+    hermes_orchestrator_reasoning_level_raw="$_horml_effort_raw"
+  else
+    local ce cam
+    ce=$(jq -r '.context_engine // ""' <<<"$projection")
+    cam=$(jq -r '.compression_anchor_mode // ""' <<<"$projection")
+    if [[ -n "$ce" && "$ce" != "null" ]]; then
+      _horml_webui_raw="$ce"
+      hermes_orchestrator_reasoning_level="$ce"
+    elif [[ -n "$cam" && "$cam" != "null" ]]; then
+      _horml_webui_raw="$cam"
+      hermes_orchestrator_reasoning_level="$cam"
+    fi
+  fi
+
+  # Stage 2.7: post-process the WebUI-chain case
+  if [[ "$hermes_orchestrator_reasoning_level_source" == "unavailable" && "$hermes_orchestrator_reasoning_level" != "unavailable" ]]; then
+    hermes_orchestrator_reasoning_level_source="webui_session_json"
+    hermes_orchestrator_reasoning_level_raw="${_horml_webui_raw:-}"
+    hermes_orchestrator_reasoning_level=$(_horml_normalize_27 "$hermes_orchestrator_reasoning_level")
   fi
 
   local _has_hermes=0 _v
@@ -263,6 +326,8 @@ hermes_orchestrator_is_cli_session="${HERMES_ORCHESTRATOR_IS_CLI_SESSION:-false}
 hermes_orchestrator_workspace="${HERMES_ORCHESTRATOR_WORKSPACE:-}"
 hermes_orchestrator_worktree_path="${HERMES_ORCHESTRATOR_WORKTREE_PATH:-null}"
 hermes_orchestrator_reasoning_level="${HERMES_ORCHESTRATOR_REASONING_LEVEL:-unavailable}"
+hermes_orchestrator_reasoning_level_source="${HERMES_ORCHESTRATOR_REASONING_LEVEL_SOURCE:-unavailable}"
+hermes_orchestrator_reasoning_level_raw="${HERMES_ORCHESTRATOR_REASONING_LEVEL_RAW:-}"
 hermes_orchestrator_capture_source="${HERMES_ORCHESTRATOR_CAPTURE_SOURCE:-none}"
 
 # Stage 2.6: resolve orchestrator metadata from session JSON if not provided
@@ -472,6 +537,8 @@ jq -n \
   --arg hermes_orchestrator_workspace "$hermes_orchestrator_workspace" \
   --arg hermes_orchestrator_worktree_path "$hermes_orchestrator_worktree_path" \
   --arg hermes_orchestrator_reasoning_level "$hermes_orchestrator_reasoning_level" \
+  --arg hermes_orchestrator_reasoning_level_source "$hermes_orchestrator_reasoning_level_source" \
+  --arg hermes_orchestrator_reasoning_level_raw "$hermes_orchestrator_reasoning_level_raw" \
   --arg hermes_orchestrator_capture_source "$hermes_orchestrator_capture_source" \
   '{
     task_id: $task_id,
@@ -541,6 +608,8 @@ jq -n \
     hermes_orchestrator_workspace: $hermes_orchestrator_workspace,
     hermes_orchestrator_worktree_path: (if $hermes_orchestrator_worktree_path == "" or $hermes_orchestrator_worktree_path == "null" then null else $hermes_orchestrator_worktree_path end),
     hermes_orchestrator_reasoning_level: $hermes_orchestrator_reasoning_level,
+    hermes_orchestrator_reasoning_level_source: $hermes_orchestrator_reasoning_level_source,
+    hermes_orchestrator_reasoning_level_raw: (if $hermes_orchestrator_reasoning_level_raw == "" then null else $hermes_orchestrator_reasoning_level_raw end),
     hermes_orchestrator_capture_source: $hermes_orchestrator_capture_source,
     "opencodebench.session_id": $opencodebench_session_id,
     "opencodebench.project_id": $opencodebench_project_id,
@@ -568,6 +637,8 @@ jq -n \
         workspace: $hermes_orchestrator_workspace,
         worktree_path: (if $hermes_orchestrator_worktree_path == "" or $hermes_orchestrator_worktree_path == "null" then null else $hermes_orchestrator_worktree_path end),
         reasoning_level: $hermes_orchestrator_reasoning_level,
+        reasoning_level_source: $hermes_orchestrator_reasoning_level_source,
+        reasoning_level_raw: (if $hermes_orchestrator_reasoning_level_raw == "" then null else $hermes_orchestrator_reasoning_level_raw end),
         capture_source: $hermes_orchestrator_capture_source
       },
       trace: {

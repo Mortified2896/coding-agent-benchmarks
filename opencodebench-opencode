@@ -74,8 +74,25 @@ Stage 2 env vars (all optional):
                                         the Hermes user prompt.
                                         Default: unset
   OPENCODEBENCH_HERMES_USER_PROMPT      Direct env-var source for the Hermes
-                                        user prompt text.
-                                        Default: unset
+                                         user prompt text.
+                                         Default: unset
+  OPENCODEBENCH_HERMES_REASONING_LEVEL  Explicit override for the Hermes
+                                         orchestrator reasoning level. When
+                                         set, the wrapper records the
+                                         normalized value as reasoning_level,
+                                         "env_override" as the source, and
+                                         the raw state.db value (if read) in
+                                         reasoning_level_raw. Acceptable
+                                         values: none, minimal, low, medium,
+                                         high, extra_high, max, unavailable.
+                                         Default: unset (capture falls
+                                         through the precedence chain)
+  OPENCODEBENCH_SKIP_HERMES_REASONING   set to 1 to skip the state.db read
+                                         and the WebUI session JSON fallback
+                                         for the reasoning level. All three
+                                         fields stay at defaults:
+                                         "unavailable", "skipped", null.
+                                         Default: unset (capture is on)
 
 Evaluation sidecar (Card 5):
   After each run the wrapper reads config/evaluation_template.md (the
@@ -327,6 +344,17 @@ for arg in "$@"; do
 done
 export OPENCODEBENCH_WORKER_PROMPT="$worker_prompt"
 
+# Stage 2.7: normalize a reasoning-level string.
+# Lowercase, replace spaces with underscores, trim leading/trailing whitespace.
+# No semantic mapping. "low" stays "low". "Extra High" becomes "extra_high".
+_horml_normalize() {
+  local s="${1:-}"
+  s="${s## }"  # leading trim
+  s="${s%% }"  # trailing trim
+  s="${s// /_}"  # spaces to underscores
+  printf '%s' "$s" | tr '[:upper:]' '[:lower:]'
+}
+
 # Stage 2.6: resolve Hermes orchestrator metadata from the WebUI session JSON.
 # Uses a single jq projection that picks only the 16 allow-listed top-level
 # scalar fields. Populates shell variables that are passed through as
@@ -342,11 +370,22 @@ resolve_hermes_orchestrator_metadata() {
   hermes_orchestrator_workspace=""
   hermes_orchestrator_worktree_path="null"
   hermes_orchestrator_reasoning_level="unavailable"
+  # Stage 2.7: reasoning-level chain and its source/raw fields.
+  hermes_orchestrator_reasoning_level_source="unavailable"
+  hermes_orchestrator_reasoning_level_raw=""
   hermes_orchestrator_capture_source="none"
 
   if [[ "${OPENCODEBENCH_SKIP_HERMES_ORCHESTRATOR:-}" == "1" ]]; then
     hermes_orchestrator_capture_source="skipped"
     hermes_orchestrator_enabled="false"
+    return 0
+  fi
+
+  # Stage 2.7: per-stage opt-out for the reasoning-level chain.
+  if [[ "${OPENCODEBENCH_SKIP_HERMES_REASONING:-}" == "1" ]]; then
+    hermes_orchestrator_reasoning_level="unavailable"
+    hermes_orchestrator_reasoning_level_source="skipped"
+    hermes_orchestrator_reasoning_level_raw=""
     return 0
   fi
 
@@ -369,6 +408,24 @@ resolve_hermes_orchestrator_metadata() {
       hermes_orchestrator_capture_source="env"
     fi
     return 0
+  fi
+
+  # Stage 2.7: resolve reasoning level via a 4-step precedence chain.
+  # The chain runs even if the WebUI session JSON is not present — the
+  # env override and the state.db read are independent of the WebUI JSON.
+  _horml_effort_raw=""
+  _horml_state_db_readable=0
+  if [[ -n "${HERMES_HOME:-}" && -n "${HERMES_SESSION_ID:-}" && -f "${HERMES_HOME}/state.db" ]]; then
+    # Targeted, single-column, single-row read. NEVER select *; NEVER
+    # read system_prompt; NEVER read state.db.messages. The grep-audit
+    # in Card 3 will verify this is the only state.db read in the
+    # wrapper.
+    _horml_effort_raw=$(sqlite3 -separator $'\t' "${HERMES_HOME}/state.db" \
+      "SELECT json_extract(model_config, '\$.reasoning_config.effort') \
+       FROM sessions WHERE id = '${HERMES_SESSION_ID}' LIMIT 1;" 2>/dev/null || true)
+    if [[ -n "$_horml_effort_raw" && "$_horml_effort_raw" != $'\t' ]]; then
+      _horml_state_db_readable=1
+    fi
   fi
 
   local projection
@@ -412,12 +469,35 @@ resolve_hermes_orchestrator_metadata() {
   hermes_orchestrator_workspace=$(jq -r '.workspace // ""' <<<"$projection")
   hermes_orchestrator_worktree_path=$(jq -r '.worktree_path // null' <<<"$projection")
 
+  # Stage 2.7 precedence chain.
+  if [[ -n "${OPENCODEBENCH_HERMES_REASONING_LEVEL:-}" ]]; then
+    # env override wins. We still record the raw state.db value (if any)
+    # so the consumer can detect "user claimed high but state.db says low".
+    hermes_orchestrator_reasoning_level=$(_horml_normalize "$OPENCODEBENCH_HERMES_REASONING_LEVEL")
+    hermes_orchestrator_reasoning_level_source="env_override"
+    hermes_orchestrator_reasoning_level_raw="$_horml_effort_raw"
+  elif [[ "$_horml_state_db_readable" == "1" ]]; then
+    hermes_orchestrator_reasoning_level=$(_horml_normalize "$_horml_effort_raw")
+    hermes_orchestrator_reasoning_level_source="state_db"
+    hermes_orchestrator_reasoning_level_raw="$_horml_effort_raw"
+  else
+    # Fall through to the Stage 2.6 WebUI chain (already implemented
+    # below). The `if/elif` near L476 sets hermes_orchestrator_reasoning_level
+    # from .context_engine or .compression_anchor_mode. If neither
+    # produces a value, the level stays "unavailable" — at the bottom of
+    # this function we will set _source to "webui_session_json" if the
+    # level was upgraded from "unavailable", or "unavailable" otherwise.
+    : # (no-op; let the existing WebUI chain run)
+  fi
+
   local ce cam
   ce=$(jq -r '.context_engine // ""' <<<"$projection")
   cam=$(jq -r '.compression_anchor_mode // ""' <<<"$projection")
   if [[ -n "$ce" && "$ce" != "null" ]]; then
+    _horml_webui_raw="$ce"
     hermes_orchestrator_reasoning_level="$ce"
   elif [[ -n "$cam" && "$cam" != "null" ]]; then
+    _horml_webui_raw="$cam"
     hermes_orchestrator_reasoning_level="$cam"
   fi
 
@@ -434,6 +514,16 @@ resolve_hermes_orchestrator_metadata() {
     hermes_orchestrator_capture_source="env"
   else
     hermes_orchestrator_capture_source="session_json"
+  fi
+
+  # Stage 2.7: post-process the WebUI-chain case to populate the
+  # source/raw fields if the WebUI path was the one that produced a
+  # value. If the env override or state.db read already populated
+  # these, this block is a no-op.
+  if [[ "$hermes_orchestrator_reasoning_level_source" == "unavailable" && "$hermes_orchestrator_reasoning_level" != "unavailable" ]]; then
+    hermes_orchestrator_reasoning_level_source="webui_session_json"
+    hermes_orchestrator_reasoning_level_raw="${_horml_webui_raw:-}"
+    hermes_orchestrator_reasoning_level=$(_horml_normalize "$hermes_orchestrator_reasoning_level")
   fi
 }
 resolve_hermes_orchestrator_metadata
@@ -462,6 +552,8 @@ task_dir=$(
   HERMES_ORCHESTRATOR_WORKSPACE="$hermes_orchestrator_workspace" \
   HERMES_ORCHESTRATOR_WORKTREE_PATH="$hermes_orchestrator_worktree_path" \
   HERMES_ORCHESTRATOR_REASONING_LEVEL="$hermes_orchestrator_reasoning_level" \
+  HERMES_ORCHESTRATOR_REASONING_LEVEL_SOURCE="$hermes_orchestrator_reasoning_level_source" \
+  HERMES_ORCHESTRATOR_REASONING_LEVEL_RAW="$hermes_orchestrator_reasoning_level_raw" \
   HERMES_ORCHESTRATOR_CAPTURE_SOURCE="$hermes_orchestrator_capture_source" \
   "$script_dir/capture-task-start.sh" "$repo_root"
 )
