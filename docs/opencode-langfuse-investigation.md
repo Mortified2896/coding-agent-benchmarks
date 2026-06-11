@@ -348,6 +348,47 @@ in order of probability:
   Same gap as `task_id`. Out of scope for this session;
   flagged for follow-up.
 
+### Langfuse `environment` tag for OpenCodeBench runs
+
+OpenCodeBench runs set `LANGFUSE_ENVIRONMENT=opencodebench`
+in the OpenCode process env. The plugin reads it and
+forwards it to the `LangfuseSpanProcessor` constructor's
+`environment` field; the SDK uses it as the Langfuse
+trace's `environment` field. Result: in the Langfuse UI,
+all OpenCodeBench traces show `Environment: opencodebench`,
+which is a one-click filter handle.
+
+This is set by the OpenCodeBench wrapper
+(`./opencodebench-opencode`, just after the
+`OTEL_RESOURCE_ATTRIBUTES` block), not by the env-loader.
+Reason: tagging should be per-run, not global — an
+interactive `opencode` session that does not go through
+the wrapper should not be labelled `opencodebench`. The
+env-var is honoured if already set, so the operator can
+override per-run (e.g.
+`LANGFUSE_ENVIRONMENT=staging ./opencodebench-opencode ...`).
+
+The literal Langfuse `tags` field (the multi-value UI
+field usually called 'tags', distinct from `environment`)
+is not yet set. Setting it requires a small custom
+OpenCode plugin that calls the Langfuse SDK's
+`setPropagatedAttribute({ key: 'tags', value: [...] })`
+from an event hook — the SDK does **not** read tags from
+OTel resource attributes, only from span attributes or
+context propagation. Tracked as a separate follow-up.
+
+### Quick-find recipe (operator)
+
+In the Langfuse UI:
+
+* Click the `Environment` filter and select
+  `opencodebench` — all OpenCodeBench traces show up.
+* Or search the trace list with
+  `environment:opencodebench` in the search box.
+* Combine with a timestamp window
+  (`>= YYYY-MM-DDTHH:MM:SSZ`) to narrow to a specific
+  capture session.
+
 ## What I checked, in summary
 
 | Question | Answer |
