@@ -313,6 +313,20 @@ case "$opencode_bin" in
     ;;
 esac
 
+# Capture the OpenCode version for metadata.json, parallel to how
+# hermes-bench.sh captures hermes_version. The flag is the same
+# (`--version`) and the output is a single line on stdout on
+# stock OpenCode 1.17.x. If the binary is unusual, we fall back
+# to the literal string "unknown" so downstream consumers do not
+# see null. Never raises — the binary has already passed
+# existence + executability checks above, so a version failure
+# is a soft signal, not a fatal one.
+opencode_version="unknown"
+if opencode_version_raw="$("$opencode_bin" --version 2>/dev/null | head -n 1)" \
+   && [[ -n "$opencode_version_raw" ]]; then
+  opencode_version="$opencode_version_raw"
+fi
+
 # Export resolved model/provider/source for downstream (capture-task-start.sh
 # and the real opencode binary). When the resolved value is empty or is the
 # literal string "unknown", export empty strings so the capture script's
@@ -556,6 +570,7 @@ task_dir=$(
   WORKING_DIRECTORY="$working_directory" \
   LAUNCHER_USED=OpenCodeBench \
   OPENCODE_EXECUTABLE_PATH="$opencode_bin" \
+  OPENCODE_VERSION="$opencode_version" \
   MODEL="${OPENCODE_MODEL:-unknown}" \
   HERMES_ORCHESTRATOR_ENABLED="$hermes_orchestrator_enabled" \
   HERMES_ORCHESTRATOR_SESSION_ID="$hermes_orchestrator_session_id" \

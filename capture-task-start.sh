@@ -298,6 +298,7 @@ task_source="${TASK_SOURCE:-${OPENCODEBENCH_TASK_SOURCE:-manual}}"
 agent_command_label="${AGENT_COMMAND_LABEL:-${OPENCODEBENCH_AGENT_COMMAND_LABEL:-${harness}-${harness_mode}}}"
 launcher_used="${LAUNCHER_USED:-}"
 opencode_executable_path="${OPENCODE_EXECUTABLE_PATH:-}"
+opencode_version="${OPENCODE_VERSION:-}"
 tracking_harness="${TRACKING_HARNESS:-${OPENCODEBENCH_TRACKING_HARNESS:-}}"
 execution_agent="${EXECUTION_AGENT:-${OPENCODEBENCH_EXECUTION_AGENT:-}}"
 upstream_orchestrator="${UPSTREAM_ORCHESTRATOR:-${OPENCODEBENCH_UPSTREAM_ORCHESTRATOR:-}}"
@@ -506,6 +507,7 @@ jq -n \
   --arg agent_command_label "$agent_command_label" \
   --arg launcher_used "$launcher_used" \
   --arg opencode_executable_path "$opencode_executable_path" \
+  --arg opencode_version "$opencode_version" \
   --arg tracking_harness "$tracking_harness" \
   --arg execution_agent "$execution_agent" \
   --arg upstream_orchestrator "$upstream_orchestrator" \
@@ -580,6 +582,7 @@ jq -n \
     agent_command_label: $agent_command_label,
     launcher_used: $launcher_used,
     opencode_executable_path: $opencode_executable_path,
+    opencode_version: $opencode_version,
     tracking_harness: $tracking_harness,
     execution_agent: $execution_agent,
     upstream_orchestrator: $upstream_orchestrator,
