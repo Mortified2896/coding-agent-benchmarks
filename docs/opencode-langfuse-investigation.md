@@ -430,6 +430,35 @@ query works through Python's stdlib `sqlite3`.
   attribute in the UI), or (b) a custom plugin
   (works for trace-level metadata).
 
+### OpenCode session ID — now resolved in metadata.json
+
+As of the stage 3 tracking update, `capture-task-finish.sh`
+resolves the OpenCode session ID from
+`~/.local/share/opencode/opencode.db` after each OpenCode run and
+records it in `metadata.json` as `opencode_session_id` (top-
+level) and `opencodebench.opencode_session_id` (nested
+mirror). The join chain is now automatically recorded for
+each OpenCode run:
+
+| Field | Source | Status | Join use |
+|---|---|---|---|
+| `opencode_session_id` | SQLite DB lookup | `resolved`, `not_found`, `ambiguous`, `error` | Strong join key from OpenCodeBench to OpenCode DB (`session.id`) |
+| `opencodebench.opencode_session_id` | nested mirror | same | Same value, grouped under `opencodebench.*` |
+| `langfuse_trace_id` | deferred | `skipped` | Placeholder; join via `opencodebench.session_id` in OTel resource attributes |
+
+Resolution logic: directory match (`session.directory ==
+repo_path`, with realpath normalization) within a time
+window of start-30s to finish+30s, preferring root `build`
+sessions (`parent_id IS NULL`) over subagent sessions. On
+unique match the status is `resolved` and the `ses_*` ID is
+stored. Multiple candidates produce `ambiguous` with a candidate count only;
+no candidate rows are stored. DB absence or query failure
+produces `not_found` or `error` without blocking the run.
+
+This means the cross-DB SQL lookup recipe below can now
+grab the OpenCode session ID directly from `metadata.json`
+instead of guessing the time window.
+
 ### Langfuse `environment` tag for OpenCodeBench runs
 
 OpenCodeBench runs set `LANGFUSE_ENVIRONMENT=opencodebench`

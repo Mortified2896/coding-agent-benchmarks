@@ -92,6 +92,34 @@ inventory is in
 and the validation report is in
 [docs/stage-26-card-4-validation.md](docs/stage-26-card-4-validation.md).
 
+### Strong ID tracking: `opencode_session_id`
+
+Stage 3 adds automatic resolution of the OpenCode internal session ID
+(`ses_*`) into `metadata.json` after each OpenCode run. The resolution happens in
+`capture-task-finish.sh` by querying `~/.local/share/opencode/opencode.db`
+with Python stdlib `sqlite3` (read-only, directory + time-window match,
+preferring root `build` sessions over subagent sessions).
+
+Fields written (top-level and nested under `opencodebench.*`):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `opencode_session_id` | string or null | OpenCode session ID (`ses_...`) when uniquely resolved. |
+| `opencode_session_id_status` | string | `resolved`, `not_found`, `ambiguous`, `skipped`, or `error`. |
+| `opencode_session_id_source` | string | `sqlite`, `log`, or `unset`. |
+| `opencode_session_id_resolved_at` | string or null | ISO-8601 timestamp of the DB lookup. |
+| `opencode_session_id_candidates` | integer | Count of candidates when `ambiguous`; 0 otherwise. |
+| `langfuse_trace_id` | null | Always `null` (Langfuse trace ID resolution deferred). |
+| `langfuse_trace_id_status` | string | Always `skipped`. |
+| `langfuse_trace_id_source` | string | Always `unset`. |
+| `langfuse_trace_id_resolved_at` | null | Always `null`. |
+
+The `opencode_session_id` field is the **strong join key** from
+OpenCodeBench logs to the OpenCode session DB. It is automatically
+populated for OpenCode runs; no manual join or time-window guesswork is
+needed downstream. Langfuse join is still via `opencodebench.session_id`
+in the OTel resource attributes (set by the wrapper at launch time).
+
 ### Stage 2.9 — private Hermes transcript layer
 
 Stage 2.9 adds a **local-only** transcript layer that imports Hermes

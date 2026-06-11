@@ -173,6 +173,15 @@ The full set of fields written by the Stage 1 wrapper:
 | `agent_exit_code` / `opencode_exit_code` | finish capture | Matches the real OpenCode process exit code. |
 | `git_status_short_after_path` and `git_diff_*_path` | wrapper | Relative paths to the finish-capture artifacts. |
 | `summary.md` | finish capture | Human-readable run summary. |
+| `opencode_session_id` | finish capture | OpenCode internal session ID (`ses_*`), resolved from `~/.local/share/opencode/opencode.db` after OpenCode runs. `null` when skipped/not found/ambiguous/error. |
+| `opencode_session_id_status` | finish capture | `resolved`, `not_found`, `ambiguous`, `skipped`, or `error`. |
+| `opencode_session_id_source` | finish capture | `sqlite`, `log`, or `unset`. |
+| `opencode_session_id_resolved_at` | finish capture | ISO-8601 timestamp of the DB lookup, or `null`. |
+| `opencode_session_id_candidates` | finish capture | Number of candidate sessions when status is `ambiguous`; 0 otherwise. |
+| `langfuse_trace_id` | finish capture | Always `null` (Langfuse trace ID resolution is deferred; trace join is via `opencodebench.session_id`). |
+| `langfuse_trace_id_status` | finish capture | Always `skipped`. |
+| `langfuse_trace_id_source` | finish capture | Always `unset`. |
+| `langfuse_trace_id_resolved_at` | finish capture | Always `null`. |
 
 Direct user run (default values):
 

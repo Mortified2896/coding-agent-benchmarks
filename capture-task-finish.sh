@@ -119,8 +119,115 @@ else
   diff_is_git_repo="false"
 fi
 
+# ============================================================
+# OpenCode session ID resolution
+# Resolves opencode_session_id from ~/.local/share/opencode/opencode.db
+# after the worker finishes. This is the strong join key from
+# OpenCodeBench metadata to OpenCode's internal session DB.
+# ============================================================
+opencode_session_merge='{"opencode_session_id":null,"opencode_session_id_status":"skipped","opencode_session_id_source":"unset","opencode_session_id_resolved_at":null,"opencode_session_id_candidates":0}'
+langfuse_merge='{"langfuse_trace_id":null,"langfuse_trace_id_status":"skipped","langfuse_trace_id_source":"unset","langfuse_trace_id_resolved_at":null}'
+
+_oc_db="${HOME}/.local/share/opencode/opencode.db"
+if [[ "$agent_kind" != "opencode" ]]; then
+  opencode_session_merge='{"opencode_session_id":null,"opencode_session_id_status":"skipped","opencode_session_id_source":"unset","opencode_session_id_resolved_at":null,"opencode_session_id_candidates":0}'
+elif [[ -f "$_oc_db" && -r "$_oc_db" ]] && command -v python3 >/dev/null 2>&1; then
+  _oc_resolved_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  _oc_raw=$(export OC_DB="$_oc_db" OC_REPO="$repo" OC_START="$start_unix_seconds" OC_FINISH="$finish_unix_seconds"; python3 -c '
+import json, sqlite3, os
+
+db = os.environ["OC_DB"]
+rp = os.environ["OC_REPO"]
+ss = float(os.environ.get("OC_START", "0"))
+fs = float(os.environ.get("OC_FINISH", "0"))
+
+if ss <= 0:
+    ss = max(0.0, fs - 3600.0)
+start_ms = int(ss * 1000) - 30000
+finish_ms = int(fs * 1000) + 30000
+if start_ms < 0:
+    start_ms = 0
+
+try:
+    rp_real = os.path.realpath(rp)
+except Exception:
+    rp_real = rp
+
+try:
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, directory, parent_id, agent FROM session "
+        "WHERE directory IS NOT NULL AND time_created >= ? AND time_created <= ? "
+        "ORDER BY time_created",
+        (start_ms, finish_ms)
+    )
+    root_ids = []
+    build_ids = []
+    all_ids = []
+    for row in cur.fetchall():
+        d = row[1]
+        if d is None:
+            continue
+        try:
+            d_real = os.path.realpath(d)
+        except Exception:
+            d_real = d
+        if d_real == rp_real or d_real == rp or d == rp_real or d == rp:
+            all_ids.append(row[0])
+            if row[2] is None:
+                root_ids.append(row[0])
+                if row[3] in (None, "build"):
+                    build_ids.append(row[0])
+    conn.close()
+    ids = build_ids if build_ids else root_ids if root_ids else all_ids
+    if len(ids) == 0:
+        print(json.dumps({"s": "nf", "c": 0}))
+    elif len(ids) == 1:
+        print(json.dumps({"s": "ok", "id": ids[0], "c": 1}))
+    else:
+        print(json.dumps({"s": "am", "c": len(ids)}))
+except Exception:
+    print(json.dumps({"s": "er", "c": 0}))
+' 2>/dev/null) || _oc_raw='{"s":"er","c":0}'
+
+  _oc_s=$(printf '%s' "$_oc_raw" | jq -r '.s // "er"')
+  case "$_oc_s" in
+    ok)
+      _oc_id=$(printf '%s' "$_oc_raw" | jq -r '.id // ""')
+      _oc_cnt=$(printf '%s' "$_oc_raw" | jq -r '.c // 0')
+      opencode_session_merge=$(jq -n \
+        --arg id "$_oc_id" \
+        --arg resolved_at "$_oc_resolved_at" \
+        --argjson cnt "$_oc_cnt" \
+        '{opencode_session_id:$id,opencode_session_id_status:"resolved",opencode_session_id_source:"sqlite",opencode_session_id_resolved_at:$resolved_at,opencode_session_id_candidates:$cnt}')
+      ;;
+    nf)
+      opencode_session_merge='{"opencode_session_id":null,"opencode_session_id_status":"not_found","opencode_session_id_source":"sqlite","opencode_session_id_resolved_at":null,"opencode_session_id_candidates":0}'
+      ;;
+    am)
+      _oc_cnt=$(printf '%s' "$_oc_raw" | jq -r '.c // 0')
+      opencode_session_merge=$(jq -n \
+        --argjson cnt "$_oc_cnt" \
+        '{opencode_session_id:null,opencode_session_id_status:"ambiguous",opencode_session_id_source:"sqlite",opencode_session_id_resolved_at:null,opencode_session_id_candidates:$cnt}')
+      ;;
+    *)
+      opencode_session_merge='{"opencode_session_id":null,"opencode_session_id_status":"error","opencode_session_id_source":"sqlite","opencode_session_id_resolved_at":null,"opencode_session_id_candidates":0}'
+      ;;
+  esac
+  unset OC_DB OC_REPO OC_START OC_FINISH
+else
+  if [[ ! -f "$_oc_db" ]]; then
+    opencode_session_merge='{"opencode_session_id":null,"opencode_session_id_status":"not_found","opencode_session_id_source":"sqlite","opencode_session_id_resolved_at":null,"opencode_session_id_candidates":0}'
+  else
+    opencode_session_merge='{"opencode_session_id":null,"opencode_session_id_status":"error","opencode_session_id_source":"sqlite","opencode_session_id_resolved_at":null,"opencode_session_id_candidates":0}'
+  fi
+fi
+
 tmp_metadata=$(mktemp)
 jq \
+  --argjson opencode_session_merge "$opencode_session_merge" \
+  --argjson langfuse_merge "$langfuse_merge" \
   --arg timestamp_end "$timestamp_end" \
   --arg session_finish_time "$timestamp_end" \
   --arg finish_time "$finish_time" \
@@ -141,7 +248,7 @@ jq \
   --argjson working_tree_dirty_after "$working_tree_dirty_after" \
   --argjson diff_produced "$diff_produced" \
   --argjson diff_is_git_repo "$diff_is_git_repo" \
-  '. + {
+  '. + $opencode_session_merge + $langfuse_merge + {
     timestamp_end: $timestamp_end,
     session_finish_time: $session_finish_time,
     finish_time: $finish_time,
@@ -162,19 +269,28 @@ jq \
     git_diff_numstat_path: $git_diff_numstat_path
   } + (if $agent_kind == "hermes" then {hermes_exit_code: $agent_exit_code} else {opencode_exit_code: $agent_exit_code} end)
    | .opencodebench.timing += {
-       finish_unix_seconds: $finish_unix_seconds,
-       duration_seconds: $duration_seconds
-     }
+        finish_unix_seconds: $finish_unix_seconds,
+        duration_seconds: $duration_seconds
+      }
    | .opencodebench += {
-       diff_summary: {
-         files_changed: $files_changed,
-         lines_added: $lines_added,
-         lines_deleted: $lines_deleted,
-         working_tree_dirty_after: $working_tree_dirty_after,
-         diff_produced: $diff_produced,
-         is_git_repo: $diff_is_git_repo
-       }
-     }' \
+        diff_summary: {
+          files_changed: $files_changed,
+          lines_added: $lines_added,
+          lines_deleted: $lines_deleted,
+          working_tree_dirty_after: $working_tree_dirty_after,
+          diff_produced: $diff_produced,
+          is_git_repo: $diff_is_git_repo
+        },
+        opencode_session_id: $opencode_session_merge.opencode_session_id,
+        opencode_session_id_status: $opencode_session_merge.opencode_session_id_status,
+        opencode_session_id_source: $opencode_session_merge.opencode_session_id_source,
+        opencode_session_id_resolved_at: $opencode_session_merge.opencode_session_id_resolved_at,
+        opencode_session_id_candidates: $opencode_session_merge.opencode_session_id_candidates,
+        langfuse_trace_id: $langfuse_merge.langfuse_trace_id,
+        langfuse_trace_id_status: $langfuse_merge.langfuse_trace_id_status,
+        langfuse_trace_id_source: $langfuse_merge.langfuse_trace_id_source,
+        langfuse_trace_id_resolved_at: $langfuse_merge.langfuse_trace_id_resolved_at
+      }' \
   "$metadata_path" > "$tmp_metadata"
 mv "$tmp_metadata" "$metadata_path"
 

@@ -64,6 +64,24 @@ The `*-before.*` files capture pre-run state; the bare files capture post-run st
 
 ## Missing or underpopulated fields
 
+### New fields added: `opencode_session_id` and `langfuse_trace_id`
+
+Stage 3 tracking adds two new field groups to `metadata.json`,
+resolved during finish capture:
+
+| Field | Status for this run | Notes |
+|---|---|---|
+| `opencode_session_id` | `not_found` (no matching session in time window) or `resolved` (matched) | Resolved from `~/.local/share/opencode/opencode.db` via directory match + time window, preferring root `build` sessions over subagents. Strong join key to OpenCode's internal session DB. |
+| `opencode_session_id_status` | `resolved` / `not_found` / `ambiguous` / `error` / `skipped` | Categorical signal for downstream analysis. |
+| `opencode_session_id_source` | `sqlite` (current impl) | Where the resolution came from. |
+| `opencode_session_id_resolved_at` | ISO-8601 timestamp or `null` | When the DB lookup was performed. |
+| `opencode_session_id_candidates` | integer (0 when resolved/not_found) | Candidate count when ambiguous; avoid storing raw candidate rows. |
+| `langfuse_trace_id` | `null` | Always `null`; Langfuse join is via `opencodebench.session_id` in OTel resource attributes. |
+| `langfuse_trace_id_status` | `skipped` | Resolution deferred by design. |
+
+All fields also appear nested under `opencodebench.*` for
+consistent grouping.
+
 Two real gaps for an OpenCode run like this one:
 
 1. **`opencode_version` is `null`.** The field is reserved in the
