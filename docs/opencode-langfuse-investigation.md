@@ -170,17 +170,29 @@ documented below.
      "experimental": { "openTelemetry": true },
      "plugin": [
        "./plugin/load-langfuse-env.mjs",
-       "opencode-plugin-langfuse"
+       "file:///home/hermes/.config/opencode/node_modules/opencode-plugin-langfuse/dist/index.js"
      ]
    }
    ```
 
-   Order matters: the env-loader must run before the Langfuse
-   plugin so the `LANGFUSE_*` vars are in `process.env` when the
-   plugin reads them at module-load time. OpenCode 1.17.3
-   resolves the relative `./plugin/...` to an absolute `file://`
-   URL and the bare `opencode-plugin-langfuse` via Node module
-   resolution starting from `~/.config/opencode/node_modules/`.
+   **Important: use the absolute `file://` URL for the
+   `opencode-plugin-langfuse` spec, not the bare npm name.**
+   OpenCode 1.17.3's plugin loader *resolves* bare npm names to
+   paths in `node_modules/` (so `opencode debug info` lists them
+   as loaded), but does **not** actually invoke the factory
+   unless the spec is a `file://` URL. This was the silent
+   failure mode behind the first round of "plugin installed
+   but no trace in Langfuse": the bare-npm form passes
+   config validation, gets listed in `debug info`, but never
+   executes. The `file://` form is verified working — see the
+   "Smoke test result" section below. The relative
+   `./plugin/...` form works for our own env-loader because
+   the loader normalizes it to an absolute `file://` URL
+   itself; the Langfuse plugin entry does not get that
+   normalization unless we feed it one. Order matters in
+   either case: the env-loader must run before the Langfuse
+   plugin so the `LANGFUSE_*` vars are in `process.env` when
+   the plugin reads them at module-load time.
 
 ### Mapping correction from the prior revision
 
@@ -261,18 +273,18 @@ Results:
   stdout: `[load-langfuse-env] LANGFUSE_PUBLIC_KEY=set
   LANGFUSE_SECRET_KEY=*** LANGFUSE_BASEURL=set
   LANGFUSE_ENVIRONMENT=missing`. Names only, no values.
-* OpenCode session created: `ses_14a164501ffebB4YgYqgO5l1h9`
-  at `2026-06-11T09:00:54.398Z` UTC.
+* OpenCode session created: `ses_149da2055ffe9x5hQXUFjp9eDU`
+  at `2026-06-11T10:06:35.946Z` UTC.
 * Wrapper exited 0; model replied `pong`.
 * New OpenCodeBench task log at
-  `.local/coding-agent-task-logs/2026/06/2026-06-11T09-00-32Z-opencode-coding-agent-benchmarks/`
-  with `task_type: validation/valid`, `git_head_before: fce1b51f`
+  `.local/coding-agent-task-logs/2026/06/2026-06-11T10-06-32Z-opencode-coding-agent-benchmarks/`
+  with `task_type: validation/valid`, `git_head_before: 05cb39d`
   (matches the just-pushed tip), `opencode_version: "1.17.3"`.
-* No "Missing LANGFUSE_PUBLIC_KEY or LANGFUSE_SECRET_KEY"
-  warning in the OpenCode structured log. The plugin's source
-  would log that warning if the keys were missing; its
-  absence is meaningful (the keys were present at plugin
-  load time).
+* **Plugin log lines now in `opencode.log`** (these were
+  absent in the first round and were the diagnostic
+  evidence that the plugin wasn't actually running):
+  - `OTEL tracing initialized → https://cloud.langfuse.com`
+  - `Flushing OTEL spans before idle`
 * `git status` clean; no secrets (`pk-lf-` or `sk-lf-` shaped
   strings) in `~/.local/share/opencode/log/opencode.log`.
 
@@ -290,9 +302,9 @@ before the process exited.
 
 **What the operator should look for in the Langfuse UI:**
 
-* Time window: search around `2026-06-11T09:00-09:02 UTC`.
+* Time window: search around `2026-06-11T10:06-10:08 UTC`.
 * A trace with the OpenCode session ID
-  `ses_14a164501ffebB4YgYqgO5l1h9` or the model
+  `ses_149da2055ffe9x5hQXUFjp9eDU` or the model
   `opencode/deepseek-v4-flash-free`.
 * Span hierarchy: a session span, a child LLM-generation
   span for the call, and the user prompt "Reply with the
