@@ -136,6 +136,21 @@ operator's, not the agent's.
 to land Option A; that is what happened, with one deviation
 documented below.
 
+### Verified end-to-end (2026-06-11)
+
+Operator confirmed in the Langfuse UI that the OpenCode →
+Langfuse trace for the test capture on 2026-06-11 (`task_id`
+`2026-06-11T10-22-43Z-opencode-coding-agent-benchmarks`,
+OpenCode session `ses_149cb4f99ffeVObjt8T96bycPB`) is
+visible. Environment field reads `opencodebench` (set by
+the wrapper per the recipe in the "Langfuse `environment`
+tag for OpenCodeBench runs" section below). The full set of
+local join keys, OTel resource attributes, and the cross-DB
+SQL lookup that ties the Langfuse trace back to the
+OpenCodeBench task log is recorded in the
+"Local-side join keys (what the operator already has)"
+section below.
+
 ### What landed (user-level config only — no repo changes)
 
 1. **`~/.config/opencode/package.json`** — minimal `package.json`
@@ -272,81 +287,148 @@ Results:
 * **Env-loader log line printed first** in the wrapper's
   stdout: `[load-langfuse-env] LANGFUSE_PUBLIC_KEY=set
   LANGFUSE_SECRET_KEY=*** LANGFUSE_BASEURL=set
-  LANGFUSE_ENVIRONMENT=missing`. Names only, no values.
-* OpenCode session created: `ses_149da2055ffe9x5hQXUFjp9eDU`
-  at `2026-06-11T10:06:35.946Z` UTC.
+  LANGFUSE_ENVIRONMENT=set` (this last field is `set` for
+  captures run after commit `dd0b300` lands; for the
+  pre-tag validation runs, it was `missing` and the plugin
+  fell back to its `development` default).
+* OpenCode session created: `ses_149cb4f99ffeVObjt8T96bycPB`
+  at `2026-06-11T10:22:46.886Z` UTC (this is the
+  **verified trace**; the operator confirmed its presence
+  in the Langfuse UI on 2026-06-11).
 * Wrapper exited 0; model replied `pong`.
 * New OpenCodeBench task log at
-  `.local/coding-agent-task-logs/2026/06/2026-06-11T10-06-32Z-opencode-coding-agent-benchmarks/`
-  with `task_type: validation/valid`, `git_head_before: 05cb39d`
+  `.local/coding-agent-task-logs/2026/06/2026-06-11T10-22-43Z-opencode-coding-agent-benchmarks/`
+  with `task_type: validation/valid`, `git_head_before: 14bbbf5d`
   (matches the just-pushed tip), `opencode_version: "1.17.3"`.
-* **Plugin log lines now in `opencode.log`** (these were
-  absent in the first round and were the diagnostic
-  evidence that the plugin wasn't actually running):
+* **Plugin log lines in `opencode.log`**:
   - `OTEL tracing initialized → https://cloud.langfuse.com`
   - `Flushing OTEL spans before idle`
+  (these were absent in the first round; their presence
+  here was the diagnostic evidence that the plugin was
+  actually running, after the file:// spec fix.)
 * `git status` clean; no secrets (`pk-lf-` or `sk-lf-` shaped
   strings) in `~/.local/share/opencode/log/opencode.log`.
 
-### What I could **not** verify locally
+### Verified end-to-end (operator)
 
-I cannot reach the Langfuse cloud UI from this session, so I
-cannot confirm that the OTel spans actually reached the
-Langfuse project. The plugin uses the Langfuse OTel SDK and
-the `@opentelemetry/sdk-node` batch exporter, which buffers
-spans in memory and flushes on the `session.idle` event
-(per the plugin's source) and on `server.instance.disposed`.
-The capture was a single, short `run` invocation, so both
-events should have fired and a flush should have happened
-before the process exited.
+The OpenCode → Langfuse trace for the smoke test above
+(`task_id` `2026-06-11T10-22-43Z-opencode-coding-agent-
+benchmarks`, OpenCode session `ses_149cb4f99ffeVObjt8T96bycPB`)
+is **visible in the Langfuse UI**, as confirmed by the
+operator on 2026-06-11. The trace's `environment` field
+reads `opencodebench` (set by the wrapper per the recipe
+in the "Langfuse `environment` tag for OpenCodeBench runs"
+section below). The five `opencodebench.*` OTel resource
+attributes (`session_id`, `project_id`, `repo_root`,
+`task_dir`, `git_commit_before`) are attached to every
+span and are searchable in the UI.
 
-**What the operator should look for in the Langfuse UI:**
+The "what I could not verify locally" caveat in the
+prior revision of this doc is now retired — the operator's
+UI verification removed the only remaining unknown. The
+local-side data (this task log, the OpenCode session DB
+row, the `OTEL_RESOURCE_ATTRIBUTES` set by the wrapper)
+is now also documented in the
+"Local-side join keys (what the operator already has)"
+section below.
 
-* Time window: search around `2026-06-11T10:06-10:08 UTC`.
-* A trace with the OpenCode session ID
-  `ses_149da2055ffe9x5hQXUFjp9eDU` or the model
-  `opencode/deepseek-v4-flash-free`.
-* Span hierarchy: a session span, a child LLM-generation
-  span for the call, and the user prompt "Reply with the
-  single word: pong" → "pong" as the response.
+### Local-side join keys (what the operator already has)
 
-If the trace is **not** there, the most common failure modes,
-in order of probability:
+For the verified trace on 2026-06-11 (`task_id`
+`2026-06-11T10-22-43Z-opencode-coding-agent-benchmarks`,
+OpenCode session `ses_149cb4f99ffeVObjt8T96bycPB`),
+the local data sources carry the following join keys. Every
+key listed here is retrievable from the VM with a single
+file read or one-line SQL query; no cloud access is required.
 
-1. **OTel batch hasn't flushed yet** — wait 30-60 s and
-   refresh.
-2. **Wrong project / wrong key** — the public key in
-   `/etc/hermes/hermes.env` may point to a different
-   Langfuse project than the one being inspected.
-3. **Network egress blocked** — the VM cannot reach
-   `cloud.langfuse.com:443`. Test from a non-root shell with
-   `curl -fsS --max-time 10 https://cloud.langfuse.com/api/public/health`.
-4. **Key revoked or rotated** — check the project's "API
-   Keys" page.
+| Join key | Where it lives locally | Value for the verified trace | In Langfuse today? |
+|---|---|---|---|
+| `task_id` (= `opencodebench.session_id`) | `metadata.json.task_id` and the task dir name itself | `2026-06-11T10-22-43Z-opencode-coding-agent-benchmarks` | yes, as OTel resource attribute `opencodebench.session_id` on every span (set by the wrapper's `OTEL_RESOURCE_ATTRIBUTES`) |
+| `opencodebench.session_id` | `metadata.json.opencodebench.session_id` (nested) and the flat `metadata.json["opencodebench.session_id"]` | same as `task_id` | yes (see above) |
+| OpenCode session ID | `~/.local/share/opencode/opencode.db` `session.id`; also visible in the LLM-stream log line and the OpenCodeBench `summary.md` if added later | `ses_149cb4f99ffeVObjt8T96bycPB` | not currently in the Langfuse trace; **not** added by any env var or OTel attribute we set today |
+| Model | `metadata.json.model_id`; also `message.data.model.{providerID, modelID}` in OpenCode DB | `opencode/deepseek-v4-flash-free` (providerID=`opencode`, modelID=`deepseek-v4-flash-free`) | yes, on the LLM span as the OTel model name and the GenAI `gen_ai.response.model` attribute |
+| Timestamp (start) | `metadata.json.opencodebench.timing.start_unix_seconds` and the OTel SDK's span start time | `1781173363.625667` (UTC `2026-06-11T10:22:43.625Z`); the trace's first span is at the same time | yes, Langfuse trace timestamp |
+| Repo path / cwd | `metadata.json.cwd` and `metadata.json.repo_path` and `metadata.json.git_root` (all equal); also `session.directory` and `message.data.path.{cwd, root}` in OpenCode DB | `/home/hermes/workspace/repos/coding-agent-benchmarks` | partially — appears as the OTel `process.executable_path` / `process.working_directory` resource attribute; not a separate Langfuse field |
+| `git_head_before` | `metadata.json.git_head_before` and the nested `metadata.json.opencodebench.git_commit_before`; also `git-head-before.txt` next to `metadata.json` | `14bbbf5dd0943e9a711336d4e69c780e004737e6` | yes, as OTel resource attribute `opencodebench.git_commit_before` |
 
-### Join-key status
+**In addition, the wrapper sets five `opencodebench.*` OTel
+resource attributes on every span of the trace (see the
+`opencodebench_otel_attributes` block in `opencodebench-opencode`
+around line 612):**
 
-* **`opencodebench.session_id` / `opencodebench.task_id`**:
-  already passed via `OTEL_RESOURCE_ATTRIBUTES` from the
-  wrappers, but **not** yet verified to land on the
-  Langfuse-side trace. This is a known gap and is the next
-  small follow-up if join keys turn out to be needed.
-* **OpenCode `info.sessionID`**: persisted in
-  `~/.local/share/opencode/opencode.db` (in the `session`
-  table). This is a per-session unique ID and is the
-  strongest cross-system join key today; it is *not* yet
-  forwarded to Langfuse automatically, but if a Langfuse
-  trace has the model name and a plausible timestamp
-  window, a SQL lookup of the `session` table will
-  surface the matching `info.sessionID`.
-* **Timestamp**: the most fragile join key, but useful for
-  narrowing. The capture's `metadata.json.opencodebench.timing.start_unix_seconds`
-  and the Langfuse trace's timestamp should be within a few
-  seconds.
-* **`git_head_before`**: captured locally in `metadata.json`
-  but **not** propagated into the Langfuse trace today.
-  Same gap as `task_id`. Out of scope for this session;
-  flagged for follow-up.
+* `opencodebench.session_id` (= task_id)
+* `opencodebench.project_id` (e.g. `coding-agent-benchmarks`)
+* `opencodebench.repo_root`
+* `opencodebench.task_dir` (the absolute path to the task log dir)
+* `opencodebench.git_commit_before` (= `git_head_before`)
+
+To see them in the Langfuse UI: open a trace, click on any
+span, look in the span's "Attributes" or "Resource" panel —
+the `opencodebench.*` keys appear there. The
+`task_dir` value is the full absolute path to the local
+OpenCodeBench task log, so the local join is one click /
+one file-open away.
+
+**Hermes-side join key (operator's own session that
+triggered this run):**
+
+* `hermes_session_id`: `20260611_101253_dc430c` (in
+  `metadata.json.hermes_session_id` and
+  `task_dir/hermes_trace.json.hermes_session_id`). The
+  Hermes chat session that initiated this OpenCodeBench
+  capture. **Not** currently propagated to the Langfuse
+  trace, but discoverable via the Langfuse trace's
+  approximate timestamp + a grep of
+  `~/.hermes/sessions/` for matching `time_created`.
+
+#### Cross-DB SQL lookup (operator recipe)
+
+If you have a Langfuse trace timestamp (or environment
+filter result) and want to find the matching local
+OpenCode session + task log:
+
+```sh
+# From a Langfuse trace session ID like ses_149cb4f99ffeVObjt8T96bycPB:
+sqlite3 ~/.local/share/opencode/opencode.db \
+  "SELECT id, time_created, project_id, slug, directory, title
+   FROM session
+   WHERE id = 'ses_149cb4f99ffeVObjt8T96bycPB';"
+
+# From an OpenCodeBench task_id like
+# 2026-06-11T10-22-43Z-opencode-coding-agent-benchmarks:
+cd /home/hermes/workspace/repos/coding-agent-benchmarks
+ls -d .local/coding-agent-task-logs/2026/06/2026-06-11T10-22-43Z-*
+jq '.opencodebench' "$(
+  ls -d .local/coding-agent-task-logs/2026/06/2026-06-11T10-22-43Z-* \
+    | head -1)/metadata.json"
+```
+
+The `sqlite3` CLI is not installed on this VM; the same
+query works through Python's stdlib `sqlite3`.
+
+### What is **not** in the Langfuse trace today
+
+* **Langfuse `tags` field** (the multi-value `["a","b"]` UI
+  field, distinct from `environment`): not set. The
+  Langfuse SDK reads tags from OTel *span attributes* or
+  OTel *context propagation*, not from OTel resource
+  attributes — so a custom OpenCode plugin calling
+  `setPropagatedAttribute({ key: 'tags', value: [...] })`
+  is the path forward. Per the operator's 2026-06-11
+  instruction, the tags plugin is **deferred** until we
+  verify what the Langfuse UI already exposes for the
+  existing `opencodebench.*` resource attributes and the
+  `environment` field.
+* **Langfuse `metadata` field** (the arbitrary key/value
+  `metadata` record on a trace): not set explicitly. The
+  same caveat as `tags` applies; the SDK reads it from
+  span attributes/context only.
+* **OpenCode session ID on the trace**: not currently in
+  the Langfuse trace. Adding it would mean either
+  (a) extending the wrapper to put it in
+  `OTEL_RESOURCE_ATTRIBUTES` (works for filter-by-span-
+  attribute in the UI), or (b) a custom plugin
+  (works for trace-level metadata).
 
 ### Langfuse `environment` tag for OpenCodeBench runs
 
@@ -379,28 +461,56 @@ context propagation. Tracked as a separate follow-up.
 
 ### Quick-find recipe (operator)
 
-In the Langfuse UI:
+The Langfuse UI's "what's already there" surface for
+OpenCodeBench traces is richer than just the `environment`
+field. The full set of built-in filter handles for a
+verified trace:
 
-* Click the `Environment` filter and select
-  `opencodebench` — all OpenCodeBench traces show up.
-* Or search the trace list with
-  `environment:opencodebench` in the search box.
-* Combine with a timestamp window
-  (`>= YYYY-MM-DDTHH:MM:SSZ`) to narrow to a specific
-  capture session.
+* **Environment column filter** (one-click in the trace
+  list): `opencodebench`. All OpenCodeBench traces show
+  up; no interactive `opencode` traces are mixed in.
+* **Search box**: `environment:opencodebench`. Same
+  effect.
+* **Search box (by span attribute)**: `opencodebench.
+  session_id:2026-06-11T10-22-43Z-opencode-coding-agent-
+  benchmarks`. This narrows to a single capture.
+* **Search box (by commit)**: `opencodebench.git_commit_
+  before:14bbbf5dd0943e9a711336d4e69c780e004737e6`. This
+  finds every OpenCodeBench trace for a given repo state.
+* **Inside a trace**: click any span, look in the
+  "Attributes" or "Resource" panel. The five
+  `opencodebench.*` keys (`session_id`, `project_id`,
+  `repo_root`, `task_dir`, `git_commit_before`) are
+  attached to every span as OTel resource attributes.
+  `opencodebench.task_dir` is the full absolute path to
+  the local task log, so the local join is one click /
+  one file-open away.
+* **Timestamp window**: combine any of the above with a
+  timestamp filter to narrow to a specific capture.
+
+Recommendation (per the operator's 2026-06-11 instruction):
+before writing any more tagging code (a custom OpenCode
+plugin calling `setPropagatedAttribute`, etc.), the
+operator should **first** walk through the Langfuse UI
+using the above filters and confirm whether the existing
+`opencodebench.*` span attributes and the `environment`
+field give enough filter handles. If they do, no extra
+tagging is needed; if they don't, the next step is the
+custom plugin (deferred).
 
 ## What I checked, in summary
 
 | Question | Answer |
 |---|---|
 | Does OpenCode have native Langfuse support? | No. |
-| Does it use a plugin? | Yes (per the project's own historical doc). |
+| Does it use a plugin? | Yes (`opencode-plugin-langfuse` + custom env-loader). |
 | Does it use OpenTelemetry env vars? | Indirectly, via the plugin. |
 | What env-var names does OpenCode's plugin path need? | `LANGFUSE_*` (no `HERMES_` prefix). |
-| Can it reuse the existing `HERMES_LANGFUSE_*` variables? | Not directly — needs a custom env-loader. |
+| Can it reuse the existing `HERMES_LANGFUSE_*` variables? | Yes, via the env-loader. |
 | Where should config live? | `~/.config/opencode/opencode.jsonc` for the OpenCode config; the loader JS at `~/.config/opencode/plugin/load-langfuse-env.mjs`; the env source at `/etc/hermes/hermes.env` (no copy). |
-| Can it attach metadata / session IDs? | Yes — `opencode-plugin-langfuse` emits spans; OpenCode session IDs are also in `opencode.db`. |
-| Can OpenCode traces be joined to OpenCodeBench local logs? | Yes, via `opencodebench.session_id` and `opencodebench.task_id` (already passed via `OTEL_RESOURCE_ATTRIBUTES` in the wrappers), and via OpenCode's own session ID in `opencode.db`. |
+| Can it attach metadata / session IDs? | Yes — `opencode-plugin-langfuse` emits spans; OpenCode session IDs are also in `opencode.db`; the wrapper sets five `opencodebench.*` OTel resource attributes per span. |
+| Can OpenCode traces be joined to OpenCodeBench local logs? | Yes, verified end-to-end on 2026-06-11. The five `opencodebench.*` OTel resource attributes are searchable in the Langfuse UI; the local task log is one click away via the `opencodebench.task_dir` attribute. |
+| End-to-end verified? | **Yes** (operator confirmed Langfuse UI shows the 2026-06-11 test trace; Environment field reads `opencodebench`). |
 
 ## Cross-references
 
@@ -410,10 +520,9 @@ In the Langfuse UI:
   is configured for both OpenCode and Pi/PiWeb").
 * The local capture path that already works:
   `docs/opencodebench-task-log-analysis-prep.md`.
-* The wrapper that already passes join keys via
-  `OTEL_RESOURCE_ATTRIBUTES`: `opencodebench-opencode` and
-  `hermes-bench.sh` (around line 115 / 597 in
-  `opencodebench-opencode`).
+* The wrapper that passes join keys via
+  `OTEL_RESOURCE_ATTRIBUTES`: `opencodebench-opencode` around
+  line 612 (the `opencodebench_otel_attributes` block).
 * The Hermes-side activation (verified end to end):
   `docs/langfuse-debian-vm-status.md` and
   `docs/langfuse-activation-overnight-status.md` (post-activation
@@ -424,3 +533,8 @@ In the Langfuse UI:
 * The planning-docs batch this note was written alongside of:
   commit `770b10d` ("Add planning docs for Langfuse, Hermes
   capture, and analysis").
+* The commits that landed Option A and the verified-end-to-end
+  result: `14bbbf5` (file:// plugin spec fix), `05cb39d`
+  (initial Option A doc), `dd0b300` (environment=
+  opencodebench), `81ff0f3` (quick-find recipe), and the
+  current doc revision recording the verified state.
