@@ -624,6 +624,17 @@ else
   export OTEL_RESOURCE_ATTRIBUTES="$opencodebench_otel_attributes"
 fi
 
+# Tag the Langfuse trace environment so OpenCodeBench runs are
+# filterable in the Langfuse UI by environment=opencodebench.
+# The opencode-plugin-langfuse plugin reads LANGFUSE_ENVIRONMENT
+# and forwards it to the LangfuseSpanProcessor as the `environment`
+# field. This is per-run, not global: an interactive `opencode`
+# session that doesn't go through this wrapper will not see the
+# env var and will fall back to the plugin's default of
+# "development". Honour an operator override (e.g.
+# `LANGFUSE_ENVIRONMENT=staging ./opencodebench-opencode ...`).
+export LANGFUSE_ENVIRONMENT="${LANGFUSE_ENVIRONMENT:-opencodebench}"
+
 # sed-escape helper for evaluation template substitution
 sed_escape() {
   local val="$1"
