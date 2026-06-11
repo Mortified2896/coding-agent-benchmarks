@@ -129,103 +129,214 @@ applies: `/etc/hermes/hermes.env` is mode 0640 root:hermes; any
 change to that file's perms or to the env-loader must be the
 operator's, not the agent's.
 
-## Next-step options (operator picks)
+## Status update — Option A implemented
 
-### Option A — Single source of truth, custom env-loader (recommended)
+**As of:** session on `fce1b51` (the most recent pushed tip on
+`main`). The recommendation in the prior revision of this doc was
+to land Option A; that is what happened, with one deviation
+documented below.
 
-Extend the project's documented env-loader
-(`~/.config/opencode/plugin/load-langfuse-env.mjs`) so it reads
-`HERMES_LANGFUSE_*` from `/etc/hermes/hermes.env` and exports
-them as `LANGFUSE_*` to the OpenCode process environment. The
-keys stay in one place. The custom env-loader is the only new
-code, and it lives at a well-known path. Then update
-`opencode.jsonc` to enable `experimental.openTelemetry` and
-register the loader.
+### What landed (user-level config only — no repo changes)
 
-Approximate shape of the env-loader (sketch only; **not yet
-written**):
+1. **`~/.config/opencode/package.json`** — minimal `package.json`
+   with `"type": "module"` so `.mjs` files work without extension
+   games. Already in the existing `~/.config/opencode/.gitignore`.
+
+2. **`~/.config/opencode/node_modules/opencode-plugin-langfuse/`
+   and `~/.cache/opencode/packages/opencode-plugin-langfuse@latest/`
+   and their transitive deps (`@langfuse/otel@4.5.1`,
+   `@opencode-ai/plugin@1.1.14`, `@opentelemetry/sdk-node@^0.203.0`,
+   `@opentelemetry/sdk-trace-base@^2.0.1`, plus 172 packages
+   total).**
+
+3. **`~/.config/opencode/plugin/load-langfuse-env.mjs`** — the
+   env-loader. Reads `/etc/hermes/hermes.env` (mode 0640
+   root:hermes, readable by user `hermes` via its group bit).
+   Parses only the four names it cares about
+   (`HERMES_LANGFUSE_PUBLIC_KEY`, `HERMES_LANGFUSE_SECRET_KEY`,
+   `HERMES_LANGFUSE_BASE_URL`, optional `HERMES_LANGFUSE_ENV`)
+   and maps them to `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`,
+   `LANGFUSE_BASEURL`, `LANGFUSE_ENVIRONMENT`. Operator-set
+   `LANGFUSE_*` env vars win. Logs a single
+   `set / set / set / missing` line on success, a single
+   `console.warn` with the file path and `EACCES`/`ENOENT` on
+   failure. Never logs values.
+
+4. **`~/.config/opencode/opencode.jsonc`** — final form:
+
+   ```jsonc
+   {
+     "$schema": "https://opencode.ai/config.json",
+     "experimental": { "openTelemetry": true },
+     "plugin": [
+       "./plugin/load-langfuse-env.mjs",
+       "opencode-plugin-langfuse"
+     ]
+   }
+   ```
+
+   Order matters: the env-loader must run before the Langfuse
+   plugin so the `LANGFUSE_*` vars are in `process.env` when the
+   plugin reads them at module-load time. OpenCode 1.17.3
+   resolves the relative `./plugin/...` to an absolute `file://`
+   URL and the bare `opencode-plugin-langfuse` via Node module
+   resolution starting from `~/.config/opencode/node_modules/`.
+
+### Mapping correction from the prior revision
+
+The earlier sketch guessed the env-var name for the URL would be
+`LANGFUSE_HOST` or `LANGFUSE_BASE_URL`. The **actual** name in
+`opencode-plugin-langfuse@0.1.8` is **`LANGFUSE_BASEURL`** —
+one word, no underscore between `BASE` and `URL`. This is a
+third-party plugin spelling choice; it must be matched exactly.
+The plugin's source
+(`node_modules/opencode-plugin-langfuse/dist/index.js`) reads:
 
 ```js
-// ~/.config/opencode/plugin/load-langfuse-env.mjs
-//
-// Reads HERMES_LANGFUSE_PUBLIC_KEY / _SECRET_KEY / _BASE_URL
-// from /etc/hermes/hermes.env and re-exports them as the
-// LANGFUSE_* names the opencode-plugin-langfuse expects.
-// Does not log values. Does not need write access to the env
-// file.
-import { readFileSync } from "node:fs";
-
-const SOURCE = "/etc/hermes/hermes.env";
-const MAP = {
-  HERMES_LANGFUSE_PUBLIC_KEY: "LANGFUSE_PUBLIC_KEY",
-  HERMES_LANGFUSE_SECRET_KEY: "LANGFUSE_SECRET_KEY",
-  HERMES_LANGFUSE_BASE_URL:   "LANGFUSE_HOST", // or _BASE_URL, plugin-specific
-};
-
-try {
-  const body = readFileSync(SOURCE, "utf8");
-  for (const line of body.split("\n")) {
-    const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
-    if (!m) continue;
-    const [, fromName, value] = m;
-    const toName = MAP[fromName];
-    if (toName && !(toName in process.env)) {
-      process.env[toName] = value.trim();
-    }
-  }
-  const have = (k) => (process.env[k] ? "set" : "missing");
-  console.log(
-    `[load-langfuse-env] ${have("LANGFUSE_PUBLIC_KEY")} / ` +
-    `${have("LANGFUSE_SECRET_KEY")} / ${have("LANGFUSE_HOST")}`,
-  );
-} catch (e) {
-  console.error(`[load-langfuse-env] could not read ${SOURCE}: ${e.message}`);
-}
+const baseUrl = process.env.LANGFUSE_BASEURL
+    ?? "https://cloud.langfuse.com";
+const environment = process.env.LANGFUSE_ENVIRONMENT
+    ?? "development";
 ```
 
-`opencode.jsonc` then becomes:
+So the env-loader's MAP is:
 
-```jsonc
-{
-  "$schema": "https://opencode.ai/config.json",
-  "experimental": { "openTelemetry": true },
-  "plugin": ["./plugin/load-langfuse-env.mjs", "opencode-plugin-langfuse"]
-}
+| Source (`/etc/hermes/hermes.env`) | Target (`process.env`) |
+|---|---|
+| `HERMES_LANGFUSE_PUBLIC_KEY` | `LANGFUSE_PUBLIC_KEY` |
+| `HERMES_LANGFUSE_SECRET_KEY` | `LANGFUSE_SECRET_KEY` |
+| `HERMES_LANGFUSE_BASE_URL` | `LANGFUSE_BASEURL` |
+| `HERMES_LANGFUSE_ENV` (optional) | `LANGFUSE_ENVIRONMENT` |
+
+### OpenCode CLI install — known issue, workaround used
+
+`opencode plugin install opencode-plugin-langfuse -g` (the
+official route described in the plugin's README) **does not
+work on this VM.** It exits with code 1 and prints only the help
+text — no actual `npm install` runs. The same failure mode
+happens with `--force`, `--log-level DEBUG`, and `--pure`; the
+direct binary (`/home/hermes/.opencode/bin/opencode`) behaves
+the same. The exact cause is unclear, but the practical effect
+is that the CLI's `plugin install` subcommand is broken on
+OpenCode 1.17.3 here.
+
+**Workaround used:** I ran `npm install` directly in
+`~/.config/opencode/` (creating a minimal `package.json` to
+give npm a workspace) and also let OpenCode's own plugin
+loader pull the package from the npm registry into
+`~/.cache/opencode/packages/opencode-plugin-langfuse@latest/`.
+Both copies are present after the run. The behavior is
+indistinguishable from a successful `opencode plugin install`
+as far as the runtime is concerned.
+
+**Recommendation for future operators:** if `opencode plugin
+install` is broken for you, the manual fallback is:
+
+```sh
+cd ~/.config/opencode
+# (create a minimal package.json with "type": "module" if not present)
+npm install --no-audit --no-fund opencode-plugin-langfuse
+# then write the env-loader and update opencode.jsonc as above
 ```
 
-…with `opencode-plugin-langfuse` installed via the official
-route: `opencode plugin install opencode-plugin-langfuse -g`.
+This is exactly what was done in the verification session.
 
-**Concerns with this option:**
+### Smoke test result
 
-* The exact env-var name the OpenCode plugin expects
-  (`LANGFUSE_HOST` vs `LANGFUSE_BASE_URL` vs
-  `LANGFUSE_TRACING_ENABLED`) is a property of
-  `opencode-plugin-langfuse`, not OpenCode core. I would need
-  to read the npm package's README / source after install to
-  confirm. There is some risk of the names being different
-  from what the doc presumes.
-* The env file is 0640 root:hermes; the loader would need
-  user `hermes` to be in group `hermes` (it is) and to be
-  able to read mode 0640 group-readable files (it can). The
-  perms are already correct.
+A validation capture was run end to end:
 
-### Option B — Separate `~/.config/opencode/langfuse.env` with the same keys
+```sh
+cd /home/hermes/workspace/repos/coding-agent-benchmarks
+env -u OPENCODE_SERVER_PASSWORD -u OPENCODE_SERVER_USERNAME \
+    OPENCODEBENCH_TASK_TYPE=validation \
+    OPENCODEBENCH_UPSTREAM_ORCHESTRATOR=hermes \
+    ./opencodebench-opencode --dir . \
+        -m opencode/deepseek-v4-flash-free run \
+        "Reply with the single word: pong"
+```
 
-The historical "do what the doc says" path. Two env files in
-sync. Risks drift: if the operator updates one and not the
-other, OpenCode will silently use stale or missing keys.
-**Not recommended** — the brief explicitly says "Do not
-duplicate real Langfuse keys in a second file if avoidable."
+Results:
 
-### Option C — Defer indefinitely
+* **Env-loader log line printed first** in the wrapper's
+  stdout: `[load-langfuse-env] LANGFUSE_PUBLIC_KEY=set
+  LANGFUSE_SECRET_KEY=*** LANGFUSE_BASEURL=set
+  LANGFUSE_ENVIRONMENT=missing`. Names only, no values.
+* OpenCode session created: `ses_14a164501ffebB4YgYqgO5l1h9`
+  at `2026-06-11T09:00:54.398Z` UTC.
+* Wrapper exited 0; model replied `pong`.
+* New OpenCodeBench task log at
+  `.local/coding-agent-task-logs/2026/06/2026-06-11T09-00-32Z-opencode-coding-agent-benchmarks/`
+  with `task_type: validation/valid`, `git_head_before: fce1b51f`
+  (matches the just-pushed tip), `opencode_version: "1.17.3"`.
+* No "Missing LANGFUSE_PUBLIC_KEY or LANGFUSE_SECRET_KEY"
+  warning in the OpenCode structured log. The plugin's source
+  would log that warning if the keys were missing; its
+  absence is meaningful (the keys were present at plugin
+  load time).
+* `git status` clean; no secrets (`pk-lf-` or `sk-lf-` shaped
+  strings) in `~/.local/share/opencode/log/opencode.log`.
 
-The current state is non-failure. Hermes → Langfuse works;
-OpenCode traces just don't reach Langfuse. If join keys for
-later analysis turn out to be unimportant for the current
-benchmark questions, this option is fine.
+### What I could **not** verify locally
 
-## What I checked, in summary, before stopping
+I cannot reach the Langfuse cloud UI from this session, so I
+cannot confirm that the OTel spans actually reached the
+Langfuse project. The plugin uses the Langfuse OTel SDK and
+the `@opentelemetry/sdk-node` batch exporter, which buffers
+spans in memory and flushes on the `session.idle` event
+(per the plugin's source) and on `server.instance.disposed`.
+The capture was a single, short `run` invocation, so both
+events should have fired and a flush should have happened
+before the process exited.
+
+**What the operator should look for in the Langfuse UI:**
+
+* Time window: search around `2026-06-11T09:00-09:02 UTC`.
+* A trace with the OpenCode session ID
+  `ses_14a164501ffebB4YgYqgO5l1h9` or the model
+  `opencode/deepseek-v4-flash-free`.
+* Span hierarchy: a session span, a child LLM-generation
+  span for the call, and the user prompt "Reply with the
+  single word: pong" → "pong" as the response.
+
+If the trace is **not** there, the most common failure modes,
+in order of probability:
+
+1. **OTel batch hasn't flushed yet** — wait 30-60 s and
+   refresh.
+2. **Wrong project / wrong key** — the public key in
+   `/etc/hermes/hermes.env` may point to a different
+   Langfuse project than the one being inspected.
+3. **Network egress blocked** — the VM cannot reach
+   `cloud.langfuse.com:443`. Test from a non-root shell with
+   `curl -fsS --max-time 10 https://cloud.langfuse.com/api/public/health`.
+4. **Key revoked or rotated** — check the project's "API
+   Keys" page.
+
+### Join-key status
+
+* **`opencodebench.session_id` / `opencodebench.task_id`**:
+  already passed via `OTEL_RESOURCE_ATTRIBUTES` from the
+  wrappers, but **not** yet verified to land on the
+  Langfuse-side trace. This is a known gap and is the next
+  small follow-up if join keys turn out to be needed.
+* **OpenCode `info.sessionID`**: persisted in
+  `~/.local/share/opencode/opencode.db` (in the `session`
+  table). This is a per-session unique ID and is the
+  strongest cross-system join key today; it is *not* yet
+  forwarded to Langfuse automatically, but if a Langfuse
+  trace has the model name and a plausible timestamp
+  window, a SQL lookup of the `session` table will
+  surface the matching `info.sessionID`.
+* **Timestamp**: the most fragile join key, but useful for
+  narrowing. The capture's `metadata.json.opencodebench.timing.start_unix_seconds`
+  and the Langfuse trace's timestamp should be within a few
+  seconds.
+* **`git_head_before`**: captured locally in `metadata.json`
+  but **not** propagated into the Langfuse trace today.
+  Same gap as `task_id`. Out of scope for this session;
+  flagged for follow-up.
+
+## What I checked, in summary
 
 | Question | Answer |
 |---|---|
