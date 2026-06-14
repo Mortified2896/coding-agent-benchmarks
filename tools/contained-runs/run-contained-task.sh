@@ -3,11 +3,11 @@ set -euo pipefail
 
 harness_version="0.1.0"
 usage() { cat >&2 <<'USAGE'
-Usage: run-contained-task.sh --task <task-folder> --run <run-name> --model <model-name> --reasoning <reasoning-level> --command <command> [--image <container-image>] [--network|--baserow-network] [--baserow-database <name>] [--allow-production-baserow]
+Usage: run-contained-task.sh --task <task-folder> --run <run-name> --model <model-name> --reasoning <reasoning-level> --command <command> [--image <container-image>] [--network|--baserow-network] [--baserow-database <name>] [--allow-production-baserow] [--no-sync-secrets]
 USAGE
 exit 64; }
 
-task=""; run=""; model=""; reasoning=""; cmd=""; network=0; baserow_network=0; baserow_database=""; allow_production=0; image="docker.io/library/alpine:3.20"
+task=""; run=""; model=""; reasoning=""; cmd=""; network=0; baserow_network=0; baserow_database=""; allow_production=0; sync_secrets=1; image="docker.io/library/alpine:3.20"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --task) task="${2:-}"; shift 2 ;;
@@ -16,6 +16,7 @@ while [[ $# -gt 0 ]]; do
     --reasoning) reasoning="${2:-}"; shift 2 ;;
     --command) cmd="${2:-}"; shift 2 ;;
     --image) image="${2:-}"; shift 2 ;;
+    --no-sync-secrets) sync_secrets=0; shift ;;
     --network) network=1; shift ;;
     --baserow-network) baserow_network=1; shift ;;
     --baserow-database) baserow_database="${2:-}"; shift 2 ;;
@@ -47,7 +48,11 @@ mkdir -p "$output_dir"
 abs_output=$(cd "$output_dir" && pwd)
 start_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 metadata_tmp=$(mktemp)
+script_dir="$(cd "$(dirname -- "$0")" && pwd)"
 secrets_file="/home/hermes/.config/contained-runs/secrets.env"
+if [[ "$sync_secrets" -eq 1 && -x "$script_dir/sync-secrets.sh" ]]; then
+  "$script_dir/sync-secrets.sh" >&2
+fi
 
 runtime_args=(run --rm --security-opt no-new-privileges --cap-drop ALL -v "$input_dir:/benchmark/input:ro" -v "$abs_output:/benchmark/output:rw" -w /benchmark/output)
 if [[ "$baserow_network" -eq 1 ]]; then

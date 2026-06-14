@@ -28,30 +28,57 @@ Not fully isolated in v1:
 
 ## Secrets
 
-Secrets are read from `/home/hermes/.config/contained-runs/secrets.env` when present. The harness never writes secret values to metadata. `check-secrets.sh` prints only set/missing.
+The harness never writes secret values to metadata. `check-secrets.sh` prints only set/missing.
 
-Create the file safely on the VM, not in this repo:
-
-```bash
-mkdir -p /home/hermes/.config/contained-runs
-chmod 700 /home/hermes/.config/contained-runs
-$EDITOR /home/hermes/.config/contained-runs/secrets.env
-chmod 600 /home/hermes/.config/contained-runs/secrets.env
-```
-
-Example variable names only; do not paste real values into repo docs or prompts:
+Long-term credential source of truth is `/etc/hermes/hermes.env`. Worker containers do not mount that file directly and should not receive manually maintained per-run keys. Instead, sync the allowlisted values into the generated worker env-file:
 
 ```bash
-OPENAI_API_KEY=...
-LANGFUSE_PUBLIC_KEY=...
-LANGFUSE_SECRET_KEY=...
-LANGFUSE_BASE_URL=...
-BASEROW_BASE_URL=...
-BASEROW_ADMIN_EMAIL=...
-BASEROW_ADMIN_PASSWORD=...
+tools/contained-runs/sync-secrets.sh
 ```
 
-## Create the HSK 1 task
+The generated file is `/home/hermes/.config/contained-runs/secrets.env` with mode `600`. The sync script preserves existing `BASEROW_*` values, copies only allowlisted provider variables, maps `HERMES_LANGFUSE_*` names to the Langfuse names worker tools expect, and prints only `set` / `missing` status. It never prints values, lengths, prefixes, suffixes, or fingerprints.
+
+Every `run-contained-task.sh` invocation syncs secrets automatically before launching the worker container unless `--no-sync-secrets` is passed. Future benchmark runs should rely on this generated env-file via `--env-file`; do not add keys manually per container or per benchmark run.
+
+Allowlisted sync inputs:
+
+- `OPENAI_API_KEY`
+- `MINIMAX_API_KEY`
+- `MINIMAX_BASE_URL`
+- `MINIMAX_GROUP_ID`
+- `HERMES_LANGFUSE_PUBLIC_KEY` -> `LANGFUSE_PUBLIC_KEY`
+- `HERMES_LANGFUSE_SECRET_KEY` -> `LANGFUSE_SECRET_KEY`
+- `HERMES_LANGFUSE_BASE_URL` -> `LANGFUSE_BASE_URL`
+- `HERMES_LANGFUSE_BASE_URL` -> `LANGFUSE_BASEURL`
+
+Create or update Baserow admin/test credentials with:
+
+```bash
+tools/contained-runs/baserow-test-stack/setup-baserow-admin.sh
+```
+
+Do not commit `/home/hermes/.config/contained-runs/secrets.env` or any other secret file.
+
+Example generated env-file shape:
+```bash
+OPENAI_API_KEY=***
+LANGFUSE_PUBLIC_KEY=***
+LANGFUSE_SECRET_KEY=***
+LANGFUSE_BASE_URL=***
+LANGFUSE_BASEURL=***
+BASEROW_BASE_URL=http://baserow:80
+BASEROW_HOST_BASE_URL=http://127.0.0.1:18080
+BASEROW_ADMIN_EMAIL=***
+BASEROW_ADMIN_PASSWORD=***
+```
+
+Check presence without printing values:
+
+```bash
+tools/contained-runs/check-secrets.sh
+```
+
+## Create task scaffold
 
 ```bash
 tools/contained-runs/create-task.sh --task tasks/baserow-hsk1-design
