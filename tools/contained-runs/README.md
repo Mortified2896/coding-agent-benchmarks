@@ -57,9 +57,32 @@ BASEROW_ADMIN_PASSWORD=...
 tools/contained-runs/create-task.sh --task tasks/baserow-hsk1-design
 ```
 
-## Run Small vs Medium comparison
+## Baserow admin/API setup
 
-Network is disabled unless `--network` is passed. Use `--network` only when the command must call OpenAI, Baserow, or Langfuse.
+Set up or verify the local Baserow admin account and benchmark targets:
+
+```bash
+tools/contained-runs/baserow-test-stack/setup-baserow-admin.sh
+```
+
+The script writes required Baserow connection variables to `/home/hermes/.config/contained-runs/secrets.env`, creates the admin only when needed, verifies API login without printing tokens, and creates/verifies the benchmark workspaces plus database applications:
+
+- `hsk1_design_gpt55_low`
+- `hsk1_design_gpt55_medium`
+
+It does not create or modify `Learn Chinese Like A Baby`.
+
+## OpenCode worker smoke test
+
+This verifies that the contained worker can install/run the OpenCode CLI in a Node container and write only to `/benchmark/output`. It does not call a model and does not create the real Baserow schema:
+
+```bash
+tools/contained-runs/run-opencode-smoke.sh
+```
+
+## Run low vs medium comparison
+
+Network is disabled unless `--network` or `--baserow-network` is passed. Use network access only when the command must call OpenAI, Baserow, or Langfuse.
 
 Small/Low example:
 
@@ -80,14 +103,14 @@ Medium example:
 tools/contained-runs/run-contained-task.sh \
   --task tasks/baserow-hsk1-design \
   --run gpt55-medium \
-  --model openai/gpt-5.5 \
+  --model gpt-5.5 \
   --reasoning medium \
   --baserow-network \
   --baserow-database hsk1_design_gpt55_medium \
   --command 'printf "%s\n" "Read /benchmark/input/task.md and write required outputs to /benchmark/output" > implementation_notes.md'
 ```
 
-The Worker containers should use `BASEROW_BASE_URL=http://baserow:80` when started with `--baserow-network`; do not use 127.0.0.1 inside workers. The `--command` is intentionally explicit so future comparisons can swap model CLIs, prompts, or agent workflows without changing the containment layer.
+The Worker containers should use `BASEROW_BASE_URL=http://baserow:80` when started with `--baserow-network`; do not use 127.0.0.1 inside workers. The harness also sets `BASEROW_HOST_HEADER=127.0.0.1:18080` for Baserow API calls because the persistent local Baserow service is configured with the host public URL. The `--command` is intentionally explicit so future comparisons can swap model CLIs, prompts, or agent workflows without changing the containment layer.
 
 ## Compare outputs
 

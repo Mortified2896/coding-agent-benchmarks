@@ -24,6 +24,7 @@ else
     -p 127.0.0.1:18080:80 \
     -v contained_runs_baserow_data:/baserow/data:Z \
     -e BASEROW_PUBLIC_URL=http://127.0.0.1:18080 \
+    -e BASEROW_EXTRA_ALLOWED_HOSTS=baserow \
     docker.io/baserow/baserow:1.30.1 >/dev/null
 fi
 printf 'Baserow container: contained-runs-baserow

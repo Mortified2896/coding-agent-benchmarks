@@ -4,7 +4,7 @@ set -euo pipefail
 secrets_file="/home/hermes/.config/contained-runs/secrets.env"
 required_provider=(OPENAI_API_KEY)
 required_langfuse=(LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_BASE_URL)
-baserow_optional=(BASEROW_BASE_URL BASEROW_ADMIN_EMAIL BASEROW_ADMIN_PASSWORD)
+baserow_optional=(BASEROW_BASE_URL BASEROW_HOST_BASE_URL BASEROW_ADMIN_EMAIL BASEROW_ADMIN_PASSWORD BASEROW_ADMIN_TOKEN)
 
 if [[ -f "$secrets_file" ]]; then
   printf 'secrets.env: exists\n'

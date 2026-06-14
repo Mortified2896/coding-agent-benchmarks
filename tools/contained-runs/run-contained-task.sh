@@ -3,11 +3,11 @@ set -euo pipefail
 
 harness_version="0.1.0"
 usage() { cat >&2 <<'USAGE'
-Usage: run-contained-task.sh --task <task-folder> --run <run-name> --model <model-name> --reasoning <reasoning-level> --command <command> [--network|--baserow-network] [--baserow-database <name>] [--allow-production-baserow]
+Usage: run-contained-task.sh --task <task-folder> --run <run-name> --model <model-name> --reasoning <reasoning-level> --command <command> [--image <container-image>] [--network|--baserow-network] [--baserow-database <name>] [--allow-production-baserow]
 USAGE
 exit 64; }
 
-task=""; run=""; model=""; reasoning=""; cmd=""; network=0; baserow_network=0; baserow_database=""; allow_production=0
+task=""; run=""; model=""; reasoning=""; cmd=""; network=0; baserow_network=0; baserow_database=""; allow_production=0; image="docker.io/library/alpine:3.20"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --task) task="${2:-}"; shift 2 ;;
@@ -15,6 +15,7 @@ while [[ $# -gt 0 ]]; do
     --model) model="${2:-}"; shift 2 ;;
     --reasoning) reasoning="${2:-}"; shift 2 ;;
     --command) cmd="${2:-}"; shift 2 ;;
+    --image) image="${2:-}"; shift 2 ;;
     --network) network=1; shift ;;
     --baserow-network) baserow_network=1; shift ;;
     --baserow-database) baserow_database="${2:-}"; shift 2 ;;
@@ -54,7 +55,7 @@ if [[ "$baserow_network" -eq 1 ]]; then
     printf 'Missing Podman network: contained-runs-baserow. Start Baserow test stack first.\n' >&2
     exit 2
   fi
-  runtime_args+=(--network contained-runs-baserow -e BASEROW_BASE_URL=http://baserow:80)
+  runtime_args+=(--network contained-runs-baserow -e BASEROW_BASE_URL=http://baserow:80 -e BASEROW_HOST_HEADER=127.0.0.1:18080)
 elif [[ "$network" -eq 1 ]]; then
   runtime_args+=(--network bridge)
 else
@@ -67,8 +68,7 @@ if [[ -f "$secrets_file" ]]; then
   chmod go-rwx "$secrets_file" 2>/dev/null || true
   runtime_args+=(--env-file "$secrets_file")
 fi
-# Use a tiny public shell image by default. The command may invoke mounted scripts or installed tools in custom images in future.
-image="docker.io/library/alpine:3.20"
+# Default image is Alpine; use --image for worker-specific CLIs such as Node/OpenCode.
 
 set +e
 "$runtime" "${runtime_args[@]}" "$image" /bin/sh -lc "$cmd"
