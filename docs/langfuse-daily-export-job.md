@@ -36,8 +36,39 @@ Behavior:
 4. Does not pass `--force` and does not overwrite successful exports.
 5. If a manifest already exists, validates it and exits successfully without rewriting records.
 6. Validates new or existing successful archives before returning success.
+7. Sends a best-effort outbound Telegram notification through `/home/hermes/.local/bin/pi-telegram-notify`.
 
 The wrapper prints only operational metadata and validation status. It must not print secrets, environment values, raw Langfuse records, prompts, completions, tool payloads, or observation bodies.
+
+## Telegram notifications
+
+Notifications are outbound-only and use the existing Hermes helper:
+
+```text
+/home/hermes/.local/bin/pi-telegram-notify
+```
+
+The wrapper does not read Telegram tokens or configure a bot. If the helper is missing, not executable, or delivery fails, the export's original success or failure status is preserved.
+
+Success notifications are sent after a new export validates or after an existing manifest validates as a no-op. They include:
+
+- `Langfuse archive export succeeded`
+- Export date
+- Manifest counts for traces, observations, scores, and sessions
+- Validation status
+
+Failure notifications are sent from the wrapper exit trap when the export or validation exits non-zero. They include:
+
+- `Langfuse archive export failed`
+- Export date
+- Exit code
+- Safe log inspection command:
+
+```bash
+journalctl --user -u langfuse-archive-export.service -n 80 --no-pager
+```
+
+To disable notifications without changing the export job, make the helper unavailable to the wrapper, for example by removing executable permission from `/home/hermes/.local/bin/pi-telegram-notify` or replacing it with an operator-approved no-op wrapper. To adjust notification formatting, update the helper or the `notify_success` / `notify_failure` message text in `scripts/run_daily_langfuse_archive_export.sh`.
 
 ## Validation checks
 
@@ -77,5 +108,5 @@ Check status/logs without printing raw archive content:
 
 ```bash
 systemctl --user status langfuse-archive-export.service
-journalctl --user -u langfuse-archive-export.service -n 50 --no-pager
+journalctl --user -u langfuse-archive-export.service -n 80 --no-pager
 ```

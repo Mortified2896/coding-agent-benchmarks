@@ -22,15 +22,75 @@ case "$EXPORT_DATE" in
   *) echo "invalid export date format" >&2; exit 64 ;;
 esac
 
+PARTITION_DIR="$ARCHIVE_ROOT/${EXPORT_DATE:0:4}/${EXPORT_DATE:5:2}/${EXPORT_DATE:8:2}"
+MANIFEST="$PARTITION_DIR/manifest.json"
+NOTIFY_HELPER="/home/hermes/.local/bin/pi-telegram-notify"
+VALIDATION_STATUS="not run"
+
+notify_telegram() {
+  local level="$1"
+  local message="$2"
+
+  if [[ ! -x "$NOTIFY_HELPER" ]]; then
+    return 0
+  fi
+
+  "$NOTIFY_HELPER" --level "$level" --tag "langfuse-archive" "$message" >/dev/null 2>&1 || true
+}
+
+manifest_counts() {
+  local manifest_path="$1"
+  python3 - "$manifest_path" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+try:
+    manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    objects = manifest.get("objects") or {}
+    names = ("traces", "observations", "scores", "sessions")
+    counts = []
+    for name in names:
+        meta = objects.get(name) or {}
+        counts.append(f"{name}={int(meta.get('record_count') or 0)}")
+    print(", ".join(counts))
+except Exception:
+    print("traces=unknown, observations=unknown, scores=unknown, sessions=unknown")
+PY
+}
+
+notify_success() {
+  local counts
+  counts="$(manifest_counts "$MANIFEST")"
+  notify_telegram ok "Langfuse archive export succeeded
+export_date=$EXPORT_DATE
+counts: $counts
+validation_status=$VALIDATION_STATUS"
+}
+
+notify_failure() {
+  local exit_code="$1"
+  notify_telegram error "Langfuse archive export failed
+export_date=$EXPORT_DATE
+exit_code=$exit_code
+logs: journalctl --user -u langfuse-archive-export.service -n 80 --no-pager"
+}
+
+on_exit() {
+  local exit_code="$?"
+  if [[ "$exit_code" -ne 0 ]]; then
+    notify_failure "$exit_code"
+  fi
+  exit "$exit_code"
+}
+trap on_exit EXIT
+
 # Never export the current Berlin local day in the daily job.
 TODAY_BERLIN="$(TZ="$TZ_NAME" date +%F)"
 if [[ "$EXPORT_DATE" == "$TODAY_BERLIN" ]]; then
   echo "refusing to export current partial Berlin day" >&2
   exit 65
 fi
-
-PARTITION_DIR="$ARCHIVE_ROOT/${EXPORT_DATE:0:4}/${EXPORT_DATE:5:2}/${EXPORT_DATE:8:2}"
-MANIFEST="$PARTITION_DIR/manifest.json"
 
 validate_archive() {
   local manifest_path="$1"
@@ -116,11 +176,15 @@ PY
 if [[ -f "$MANIFEST" ]]; then
   echo "archive partition already has manifest for $EXPORT_DATE; validating without overwrite"
   validate_archive "$MANIFEST"
+  VALIDATION_STATUS="success"
   echo "daily Langfuse archive export no-op: existing successful archive for $EXPORT_DATE"
+  notify_success
   exit 0
 fi
 
 echo "starting daily Langfuse archive export for $EXPORT_DATE"
 python3 scripts/export_langfuse_archive.py --date "$EXPORT_DATE" --page-size "$PAGE_SIZE"
 validate_archive "$MANIFEST"
+VALIDATION_STATUS="success"
 echo "daily Langfuse archive export completed for $EXPORT_DATE"
+notify_success
