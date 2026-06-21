@@ -2,8 +2,8 @@
 
 ## Daily cadence
 
-- Export only complete UTC days during routine backfill/maintenance.
-- Run the export for yesterday's UTC day after the day has fully closed, preferably with a buffer (for example after 01:00 UTC) to avoid partial-day ambiguity.
+- The Hermes daily archive job is documented in `docs/langfuse-daily-export-job.md`.
+- Export only complete days during routine backfill/maintenance. The installed daily job chooses yesterday's date using `Europe/Berlin` local time and runs at 04:30 Europe/Berlin.
 - Keep current-day exports out of the normal complete-day archive flow unless a future exporter mode clearly labels them as partial/current-day exports.
 
 ## Local archive path
