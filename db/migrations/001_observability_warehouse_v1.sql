@@ -190,3 +190,11 @@ CREATE INDEX IF NOT EXISTS langfuse_observations_meta_trace_idx ON observability
 CREATE INDEX IF NOT EXISTS langfuse_scores_meta_trace_idx ON observability.langfuse_scores_meta(trace_id);
 CREATE INDEX IF NOT EXISTS source_archive_files_date_type_idx ON observability.source_archive_files(archive_date, object_type);
 CREATE UNIQUE INDEX IF NOT EXISTS run_links_unique_idx ON observability.run_links(link_type, external_system, external_id, COALESCE(run_id, ''));
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pi_observability_app') THEN
+    GRANT USAGE ON SCHEMA observability TO pi_observability_app;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA observability TO pi_observability_app;
+  END IF;
+END $$;
