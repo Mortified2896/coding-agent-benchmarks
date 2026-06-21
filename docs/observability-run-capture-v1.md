@@ -122,6 +122,77 @@ Privacy boundaries are unchanged from v1: the wrapper never stores prompts, comp
 
 Current limitations: this is not full Control Room, Hermes, or launcher automation. It does not auto-detect safe external IDs, auto-save Pi analysis, or infer task completion. Users must still decide when to begin, link, validate, and finish.
 
+## Automatic Pi task entrypoint
+
+Script path:
+
+```text
+scripts/run_instrumented_pi_task.py
+```
+
+Optional local repo shim:
+
+```text
+bin/pi-task
+```
+
+Purpose: Phase C now includes an automatic task-entrypoint helper. It is a thin orchestration layer around `scripts/instrumented_task.py`: `prepare` starts metadata-only capture immediately, obtains the generated `run_id`, and writes an instrumented prompt file for the next Pi task so future tasks do not rely on remembering a separate `begin` step.
+
+Examples:
+
+```bash
+python3 scripts/run_instrumented_pi_task.py prepare \
+  --task-name "Short safe task name" \
+  --task-type implementation \
+  --project coding-agent-benchmarks \
+  --agent Pi \
+  --repo-path /home/hermes/workspace/repos/coding-agent-benchmarks \
+  "Task body goes here."
+
+python3 scripts/run_instrumented_pi_task.py prepare \
+  --task-name "Short safe task name" \
+  --task-type validation \
+  --project coding-agent-benchmarks \
+  --agent Pi \
+  --repo-path /home/hermes/workspace/repos/coding-agent-benchmarks \
+  --prompt-file /path/to/task.md
+
+python3 scripts/run_instrumented_pi_task.py active
+
+python3 scripts/run_instrumented_pi_task.py link \
+  --source-type langfuse_session \
+  --source-id safe-session-id \
+  --link-confidence manual
+
+python3 scripts/run_instrumented_pi_task.py finish \
+  --status success \
+  --result-summary "Short metadata-only result summary."
+
+bin/pi-task active
+```
+
+Supported commands: `prepare`, `active`, `link`, `finish`, and `clear`.
+
+How it differs from `instrumented_task.py`:
+
+- `instrumented_task.py begin` starts capture and records active state, but the user/agent must still remember to paste run-capture instructions into the task.
+- `run_instrumented_pi_task.py prepare` starts capture automatically and writes a generated instrumented prompt containing the original task, the `run_id`, no-OpenCode instruction, finish/reporting instructions, safe link instructions, and metadata-only privacy boundaries.
+- Other commands delegate to `instrumented_task.py` so database writes and active-state semantics remain centralized.
+
+Generated prompt files are written outside the repository by default:
+
+```text
+${XDG_STATE_HOME:-~/.local/state}/coding-agent-benchmarks/instrumented_prompts/<run_id>.md
+```
+
+`prepare` prints only the `run_id`, generated prompt file path, and a safe next instruction. It does not print the generated prompt contents by default. The generated state prompt may contain the user task prompt, so callers must not include secrets or database URLs in task text. The helper refuses obvious database URL and secret assignment patterns before writing the prompt file.
+
+Active-state behavior matches the semi-automated wrapper: if another run is active, `prepare` refuses to start a new task unless `--force` is supplied. It never silently overwrites active state. `finish` reads the active run when `--run-id` is not supplied, delegates capture finish, and clears active state through `instrumented_task.py`.
+
+Privacy boundaries are unchanged: metadata only. Do not store raw prompts, completions, transcripts, tool payloads, observation bodies, raw DB rows, raw Langfuse records, full diffs, DB URLs, env values, secrets, archive data, or credentials in Postgres or committed files. The prompt file is local XDG state, outside git tracking by default; it is not a warehouse record.
+
+Current limitations: v1 does not implement `--launch`. It deliberately does not fake Pi launch automation because no simple, reliable prompt-file launch mode is assumed here. Users should start Pi with the generated prompt file contents and let the embedded instructions finish/report the run. The helper does not auto-detect external IDs, modify raw Langfuse archives, install global shortcuts, modify shell configuration, or configure systemd/Hetzner.
+
 ## Git metadata captured
 
 Git commands are run as `git -C <repo_path> ...`. V1 stores only:
@@ -205,9 +276,11 @@ Run-capture workflow:
 - Keep metadata-only boundaries: do not store or print transcripts, prompts, completions, tool payloads, raw DB rows, raw Langfuse records, secrets, archive data, or full diffs.
 ```
 
-### Phase C: Semi-automated wrapper
+### Phase C: Semi-automated wrapper and automatic task entrypoint
 
 Implemented/available: use `scripts/instrumented_task.py` for `begin`, `finish`, `link`, `show`, `active`, and `clear`. The wrapper reduces repeated prompt boilerplate and makes it harder to forget start/finish capture, while still preserving human/agent judgment about where a task begins, where validation ends, and which external IDs are safe and relevant to link.
+
+Also implemented/available: use `scripts/run_instrumented_pi_task.py prepare` (or local shim `bin/pi-task prepare`) as the preferred v1 task entrypoint. It starts capture automatically, writes the generated instrumented prompt to local XDG state, and keeps finish/reporting instructions in the task flow.
 
 ### Phase D: Full automation
 
@@ -223,7 +296,7 @@ This should wait until several real tasks have been captured and reviewed with t
 
 ### Current recommendation
 
-Use Phase C now for serious tasks: explicit task boundaries with `scripts/instrumented_task.py` plus script-backed capture. Do not build full automation until several real tasks have been captured, reviewed, and shown to produce useful warehouse joins.
+Use Phase C now for serious tasks: prefer `scripts/run_instrumented_pi_task.py prepare` for automatic run start and generated task instructions; use `scripts/instrumented_task.py` directly when lower-level manual control is needed. Do not build deeper launcher/Control Room automation until several real tasks have been captured, reviewed, and shown to produce useful warehouse joins.
 
 ## Next steps
 
