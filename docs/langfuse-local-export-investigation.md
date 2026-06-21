@@ -303,6 +303,31 @@ The exporter writes one partition per UTC day:
 
 - The v1 exporter stores SDK response records as returned by Langfuse, including `input`/`output` fields when the API returns them. Add a redaction mode before exporting broad historical ranges if transcript minimization is required.
 - `--dry-run` intentionally probes only the first page for each object; its counts are first-page counts, not full-day totals.
-- There is no `--force` guard yet; rerunning a real export for the same day overwrites that partition's files.
+- Existing archive partitions are protected by default; use `--force` to intentionally replace expected export files for a date.
 - Retry handling is conservative and based on SDK exception class names because the generated SDK abstracts HTTP details.
 - The exporter currently loads credentials from the process environment plus the known Hermes Langfuse env files, but reports only set/missing.
+
+### Overwrite protection
+
+The exporter now protects existing archive partitions by default. If the target date directory already contains any expected export file (`traces.jsonl.gz`, `observations.jsonl.gz`, `scores.jsonl.gz`, `sessions.jsonl.gz`, or `manifest.json`), a real export without `--force` aborts before contacting Langfuse or modifying files.
+
+Refusal example:
+
+```bash
+python scripts/langfuse_export/export_langfuse_day.py --date YYYY-MM-DD
+# export already exists for date YYYY-MM-DD at /home/hermes/archives/langfuse/raw/YYYY/MM/DD; rerun with --force to overwrite
+```
+
+Dry-run reports whether the export would be blocked and whether `--force` would allow execution, but it never modifies archive files:
+
+```bash
+python scripts/langfuse_export/export_langfuse_day.py --date YYYY-MM-DD --dry-run
+```
+
+To intentionally replace an existing partition, pass `--force`:
+
+```bash
+python scripts/langfuse_export/export_langfuse_day.py --date YYYY-MM-DD --force
+```
+
+With `--force`, only the expected export files and temporary files for that date partition are removed/replaced; unrelated files in the archive directory are not touched.

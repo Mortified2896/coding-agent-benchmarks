@@ -12,7 +12,6 @@ import hashlib
 import json
 import os
 import sys
-import tempfile
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time, timezone, timedelta
@@ -28,6 +27,7 @@ ENV_FILES = [
 OBJECTS = ("traces", "observations", "scores", "sessions")
 PAGE_LIMIT = 100
 MAX_RETRIES = 4
+EXPORT_FILENAMES = tuple(f"{name}.jsonl.gz" for name in OBJECTS) + ("manifest.json",)
 
 
 class ExportError(RuntimeError):
@@ -234,6 +234,31 @@ def write_manifest(path: Path, manifest: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
+def existing_export_files(out_dir: Path) -> list[Path]:
+    if not out_dir.exists():
+        return []
+    return [out_dir / name for name in EXPORT_FILENAMES if (out_dir / name).exists()]
+
+
+def remove_existing_export_files(out_dir: Path) -> None:
+    for path in existing_export_files(out_dir):
+        path.unlink()
+    for name in OBJECTS:
+        tmp_path = out_dir / f".{name}.jsonl.gz.tmp"
+        if tmp_path.exists():
+            tmp_path.unlink()
+    manifest_tmp = out_dir / "manifest.json.tmp"
+    if manifest_tmp.exists():
+        manifest_tmp.unlink()
+
+
+def print_overwrite_refusal(day: date, out_dir: Path) -> None:
+    print(
+        "export already exists for date "
+        f"{day.isoformat()} at {out_dir}; rerun with --force to overwrite"
+    )
+
+
 def build_client() -> tuple[Any, str]:
     try:
         import langfuse
@@ -255,6 +280,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Export one UTC day of Langfuse data to local JSONL.gz archives.")
     parser.add_argument("--date", required=True, help="UTC day to export, format YYYY-MM-DD")
     parser.add_argument("--dry-run", action="store_true", help="Probe SDK endpoints without writing archive files")
+    parser.add_argument("--force", action="store_true", help="Overwrite an existing archive partition for the selected date")
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="Archive raw root; default is /home/hermes/archives/langfuse/raw")
     args = parser.parse_args(argv)
 
@@ -267,8 +293,19 @@ def main(argv: list[str] | None = None) -> int:
 
     started = datetime.now(timezone.utc)
     out_dir = Path(args.out) / f"{day:%Y}" / f"{day:%m}" / f"{day:%d}"
-    if not args.dry_run:
+    existing_files = existing_export_files(out_dir)
+    overwrite_blocked = bool(existing_files and not args.force)
+
+    if args.dry_run:
+        print("overwrite_check", "blocked" if overwrite_blocked else "allowed")
+        print("overwrite_force_would_allow", "set" if existing_files else "missing")
+    elif overwrite_blocked:
+        print_overwrite_refusal(day, out_dir)
+        return 2
+    else:
         out_dir.mkdir(parents=True, exist_ok=True)
+        if args.force:
+            remove_existing_export_files(out_dir)
 
     try:
         client, sdk_version = build_client()
@@ -303,6 +340,8 @@ def main(argv: list[str] | None = None) -> int:
             "status": overall,
             "dry_run": True,
             "sdk_version": sdk_version,
+            "overwrite_blocked": overwrite_blocked,
+            "force_would_allow": bool(existing_files),
             "counts_first_page_only": {name: r.count for name, r in results.items()},
         }, indent=2, sort_keys=True))
     else:
