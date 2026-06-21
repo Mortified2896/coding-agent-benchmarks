@@ -67,6 +67,61 @@ python3 scripts/capture_run_metadata.py show --run-id test-run-001
 
 Supported commands: `migrate`, `start`, `finish`, `link`, and `show`.
 
+## Semi-automated instrumented task wrapper
+
+Script path:
+
+```text
+scripts/instrumented_task.py
+```
+
+Purpose: Phase C is now available as a small script-backed wrapper around `capture_run_metadata.py`. It reduces repeated prompt boilerplate while preserving explicit human/agent control over task start, finish, and safe external links.
+
+Examples:
+
+```bash
+python3 scripts/instrumented_task.py begin \
+  --task-id safe-task-id \
+  --task-name "Short safe task name" \
+  --task-type implementation \
+  --project coding-agent-benchmarks \
+  --agent Pi \
+  --repo-path /home/hermes/workspace/repos/coding-agent-benchmarks
+
+python3 scripts/instrumented_task.py active
+python3 scripts/instrumented_task.py show
+
+python3 scripts/instrumented_task.py link \
+  --source-type langfuse_session \
+  --source-id safe-session-id \
+  --link-confidence manual
+
+python3 scripts/instrumented_task.py finish \
+  --status success \
+  --result-summary "Short metadata-only result summary."
+```
+
+Commands:
+
+- `begin` creates a generated `run_id` unless `--run-id` is supplied, calls `capture_run_metadata.py start`, and writes an active local context.
+- `finish` reads the active context unless `--run-id` is supplied, calls `capture_run_metadata.py finish`, and clears the active context by default. Use `--keep-active` only when the local context should remain.
+- `link` reads the active context unless `--run-id` is supplied and delegates to `capture_run_metadata.py link`.
+- `show` reads the active context unless `--run-id` is supplied and delegates to the sanitized `show` output.
+- `active` reports whether a local active context exists.
+- `clear` removes only the local active context; it does not modify warehouse rows.
+
+Active state file:
+
+```text
+${XDG_STATE_HOME:-~/.local/state}/coding-agent-benchmarks/instrumented_task_active.json
+```
+
+The state file stores only safe metadata such as `run_id`, repo path, creation timestamp, and task labels. It must not contain prompt text, transcript text, raw outputs, secrets, DB URLs, archive data, or other raw content. `begin` refuses to overwrite an existing active context unless `--force` is supplied.
+
+Privacy boundaries are unchanged from v1: the wrapper never stores prompts, completions, transcripts, tool payloads, observation bodies, raw DB rows, raw Langfuse records, full diffs, archive data, secrets, tokens, passwords, or database URLs. It delegates all database writes to `capture_run_metadata.py` and prints only sanitized status lines.
+
+Current limitations: this is not full Control Room, Hermes, or launcher automation. It does not auto-detect safe external IDs, auto-save Pi analysis, or infer task completion. Users must still decide when to begin, link, validate, and finish.
+
 ## Git metadata captured
 
 Git commands are run as `git -C <repo_path> ...`. V1 stores only:
@@ -152,7 +207,7 @@ Run-capture workflow:
 
 ### Phase C: Semi-automated wrapper
 
-Later, add a helper such as `scripts/run_instrumented_task.sh` or a Pi command such as `/instrumented-task`. The wrapper should reduce repeated prompt boilerplate and make it harder to forget start/finish capture, while still preserving human/agent judgment about where a task begins, where validation ends, and which external IDs are safe and relevant to link.
+Implemented/available: use `scripts/instrumented_task.py` for `begin`, `finish`, `link`, `show`, `active`, and `clear`. The wrapper reduces repeated prompt boilerplate and makes it harder to forget start/finish capture, while still preserving human/agent judgment about where a task begins, where validation ends, and which external IDs are safe and relevant to link.
 
 ### Phase D: Full automation
 
@@ -168,7 +223,7 @@ This should wait until several real tasks have been captured and reviewed with t
 
 ### Current recommendation
 
-Use Phase A and Phase B now: prompt-controlled workflow plus script-backed capture. Do not build full automation until a few real tasks have been captured, reviewed, and shown to produce useful warehouse joins.
+Use Phase C now for serious tasks: explicit task boundaries with `scripts/instrumented_task.py` plus script-backed capture. Do not build full automation until several real tasks have been captured, reviewed, and shown to produce useful warehouse joins.
 
 ## Next steps
 
