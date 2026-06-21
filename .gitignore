@@ -12,3 +12,4 @@ benchmark-cases/
 *.dSYM/
 __pycache__/
 *.pyc
+.venv-langfuse-export/
