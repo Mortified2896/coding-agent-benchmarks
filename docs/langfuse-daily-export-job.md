@@ -50,6 +50,8 @@ Notifications are outbound-only and use the existing Hermes helper:
 
 The wrapper does not read Telegram tokens or configure a bot. If the helper is missing, not executable, or delivery fails, the export's original success or failure status is preserved.
 
+The helper must be safe for non-interactive SSH sessions and user systemd jobs where `/home/hermes/.local/bin` may not be present in `PATH`. The live helper at `/home/hermes/.local/bin/pi-telegram-notify` resolves Hermes with `${HERMES_BIN:-/home/hermes/.local/bin/hermes}`, checks that it is executable, and then calls `"$HERMES_BIN" send --to telegram ...` instead of relying on a bare `hermes` lookup.
+
 Success notifications are sent after a new export validates or after an existing manifest validates as a no-op. They include:
 
 - `Langfuse archive export succeeded`
