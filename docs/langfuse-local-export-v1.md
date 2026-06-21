@@ -17,13 +17,15 @@ The dry run checks configured credentials and endpoint/pagination shape. It prin
 python3 scripts/export_langfuse_archive.py --date YYYY-MM-DD
 ```
 
+Use `--page-size N` to reduce API page size for large days or unreliable responses (default 50, capped at 100).
+
 For a custom bounded window:
 
 ```bash
 python3 scripts/export_langfuse_archive.py --start 2026-06-19T00:00:00Z --end 2026-06-20T00:00:00Z
 ```
 
-Use `--force` only when intentionally replacing the expected files for a partition that already has a successful `manifest.json`.
+Use `--force` only when intentionally replacing expected files for an incomplete/failed partition. Successful manifests are protected from replacement.
 
 ## Archive location
 

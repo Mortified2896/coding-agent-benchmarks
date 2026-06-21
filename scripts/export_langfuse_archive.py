@@ -39,9 +39,12 @@ TIME_PARAMS = {
     "scores": ("fromTimestamp", "toTimestamp"),
     "sessions": ("fromTimestamp", "toTimestamp"),
 }
-PAGE_LIMIT = 100
+MAX_PAGE_SIZE = 100
+DEFAULT_PAGE_SIZE = 50
 MAX_PAGES = 10000
-EXPORTER_VERSION = "1.0.0"
+REQUEST_TIMEOUT = (10, 120)
+MAX_RETRIES = 6
+EXPORTER_VERSION = "1.0.1"
 
 
 class ExportError(RuntimeError):
@@ -78,7 +81,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--end", help="exclusive ISO datetime window end")
     parser.add_argument("--dry-run", action="store_true", help="probe endpoints and pagination shape without writing records")
     parser.add_argument("--force", action="store_true", help="replace expected files for the same target partition/window")
-    parser.add_argument("--page-limit", type=int, default=PAGE_LIMIT, help="records per page, capped at 100")
+    parser.add_argument("--page-size", "--page-limit", dest="page_size", type=int, default=DEFAULT_PAGE_SIZE, help="records per page, capped at 100")
     parser.add_argument("--max-pages", type=int, default=MAX_PAGES, help="safety cap per object")
     return parser.parse_args(argv)
 
@@ -153,19 +156,35 @@ def remove_expected(out_dir: Path) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def retry_delay(attempt: int, resp: requests.Response | None = None) -> float:
+    if resp is not None:
+        retry_after = resp.headers.get("Retry-After")
+        if retry_after:
+            try:
+                return min(float(retry_after), 120.0)
+            except ValueError:
+                pass
+    return min(2.0 ** attempt, 60.0)
+
+
 def get_page(session: requests.Session, base: str, obj: str, params: dict[str, Any]) -> requests.Response:
     url = base + ENDPOINTS[obj]
-    for attempt in range(5):
-        resp = session.get(url, params=params, timeout=60)
-        if resp.status_code == 429 and attempt < 4:
-            wait = min(int(resp.headers.get("Retry-After", "1") or "1"), 60)
-            time.sleep(wait)
-            continue
-        if resp.status_code >= 500 and attempt < 4:
-            time.sleep(min(2 ** attempt, 30))
-            continue
+    last_exc: requests.RequestException | None = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            resp = session.get(url, params=params, timeout=REQUEST_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            last_exc = exc
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(retry_delay(attempt))
+                continue
+            raise ExportError(f"request failed for {obj} page {params.get('page')}: {type(exc).__name__}") from exc
+        if resp.status_code in {408, 409, 425, 429} or resp.status_code >= 500:
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(retry_delay(attempt, resp))
+                continue
         return resp
-    return resp
+    raise ExportError(f"request failed for {obj} page {params.get('page')}: {type(last_exc).__name__ if last_exc else 'retry_exhausted'}")
 
 
 def page_items(payload: Any, obj: str) -> tuple[list[Any], dict[str, Any]]:
@@ -256,9 +275,9 @@ def export_object(session: requests.Session, base: str, obj: str, start: datetim
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    if args.page_limit < 1:
-        raise ExportError("--page-limit must be positive")
-    page_limit = min(args.page_limit, PAGE_LIMIT)
+    if args.page_size < 1:
+        raise ExportError("--page-size must be positive")
+    page_size = min(args.page_size, MAX_PAGE_SIZE)
     day, start, end = export_window(args)
     loaded = load_env_files()
     status = config_status()
@@ -268,8 +287,11 @@ def main(argv: list[str] | None = None) -> int:
         eprint("export failed: missing required Langfuse config")
         return 1
     out_dir = DEFAULT_RAW_ROOT / f"{day:%Y}" / f"{day:%m}" / f"{day:%d}"
-    if not args.dry_run and successful_manifest(out_dir / "manifest.json") and not args.force:
-        eprint(f"refusing to overwrite successful export at {out_dir}; pass --force to replace expected files")
+    if not args.dry_run and successful_manifest(out_dir / "manifest.json"):
+        if not args.force:
+            eprint(f"refusing to overwrite successful export at {out_dir}; pass --force to replace expected files")
+            return 2
+        eprint(f"refusing to --force overwrite successful export at {out_dir}")
         return 2
     if not args.dry_run:
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -283,7 +305,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         base = api_base()
         for obj in OBJECTS:
-            objects[obj] = export_object(session, base, obj, start, end, out_dir, args.dry_run, page_limit, args.max_pages)
+            objects[obj] = export_object(session, base, obj, start, end, out_dir, args.dry_run, page_size, args.max_pages)
             print("object", obj, "status", objects[obj]["status"], "records", objects[obj]["record_count"], "pages", objects[obj]["page_count"])
     except Exception as exc:
         eprint("export failed:", type(exc).__name__, str(exc).splitlines()[0])
@@ -301,7 +323,7 @@ def main(argv: list[str] | None = None) -> int:
         "object_types_attempted": list(OBJECTS),
         "objects": objects,
         "api_status_summary": {k: v["status"] for k, v in objects.items()},
-        "page_limit": page_limit,
+        "page_size": page_size,
         "completed_successfully": bool(success and not args.dry_run),
         "dry_run": bool(args.dry_run),
         "safety": {"secrets_printed": False, "record_contents_printed": False, "env_values_printed": False},
