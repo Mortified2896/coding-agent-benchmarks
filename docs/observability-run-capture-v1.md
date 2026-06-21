@@ -123,15 +123,32 @@ This keeps task boundaries under human/agent control while using the script as t
 
 ### Phase B: Reusable instrumented task prompt
 
-Create a reusable prompt snippet for future Pi tasks so run capture instructions are not rewritten each time. The snippet should tell Pi to:
+Use the reusable snippet below for future Pi tasks so run capture instructions are not rewritten each time. The snippet can be pasted into serious task prompts until the workflow has enough real examples to justify more automation.
 
-- generate or use a stable `run_id`;
-- start run capture before changes;
-- finish run capture after validation;
-- link known trace, session, and analysis IDs;
-- include the `run_id` in the final report.
+## Reusable instrumented task prompt snippet
 
-The snippet can be pasted into serious task prompts until the workflow has enough real examples to justify more automation.
+```text
+Run-capture workflow:
+- Generate or use a stable run_id for this task, such as <task-slug>-YYYYMMDD-HHMM.
+- Before changing files, run:
+  python3 scripts/capture_run_metadata.py start \
+    --run-id <run_id> \
+    --task-id <safe-task-id> \
+    --task-name "<short safe task name>" \
+    --task-type <docs|code|validation|maintenance> \
+    --project <project-name> \
+    --agent Pi \
+    --repo-path <absolute repo path>
+- Complete the task and validation.
+- After validation, run:
+  python3 scripts/capture_run_metadata.py finish \
+    --run-id <run_id> \
+    --status <success|failed|partial> \
+    --result-summary "<short metadata-only result summary>"
+- If known and safe, link Langfuse trace IDs, Langfuse session IDs, or Pi analysis IDs with the link command.
+- Include the run_id in the final report.
+- Keep metadata-only boundaries: do not store or print transcripts, prompts, completions, tool payloads, raw DB rows, raw Langfuse records, secrets, archive data, or full diffs.
+```
 
 ### Phase C: Semi-automated wrapper
 
