@@ -84,6 +84,8 @@ Future producers should share a run envelope and propagate stable identifiers. R
 
 Pi currently does not store enough of these fields in `/save-analysis` rows. That should be fixed before building reports, because reports without durable join keys would depend on weak timestamp and metadata heuristics.
 
+For the current staged path from prompt-driven run capture to future automation, see the [Staged adoption plan](observability-run-capture-v1.md#staged-adoption-plan) in the run capture v1 documentation.
+
 ## Proposed implementation phases
 
 ### Phase 1: Patch Pi `/save-analysis` correlation fields

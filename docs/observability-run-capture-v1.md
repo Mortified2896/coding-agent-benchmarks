@@ -104,6 +104,55 @@ The helper output avoids raw DB rows and raw DB URLs. `show` reports only counts
 - The `metadata` JSON column is available for safe metadata only; callers must not put raw content in it.
 - GitHub enrichment is not implemented.
 
+## Staged adoption plan
+
+Run capture should move from prompt-controlled use to automation in stages. The immediate goal is to prove that metadata-only capture is useful on real tasks before investing in launchers or Control Room integration.
+
+### Phase A: Prompt-driven run capture
+
+Future serious task prompts should explicitly instruct Pi to:
+
+- create or accept a stable `run_id`;
+- call `scripts/capture_run_metadata.py start` before making changes;
+- complete the task and validation;
+- call `scripts/capture_run_metadata.py finish` after validation;
+- link known Langfuse trace/session IDs, Pi session IDs, or Pi analysis IDs when available;
+- include the `run_id` in the final report.
+
+This keeps task boundaries under human/agent control while using the script as the durable metadata capture mechanism.
+
+### Phase B: Reusable instrumented task prompt
+
+Create a reusable prompt snippet for future Pi tasks so run capture instructions are not rewritten each time. The snippet should tell Pi to:
+
+- generate or use a stable `run_id`;
+- start run capture before changes;
+- finish run capture after validation;
+- link known trace, session, and analysis IDs;
+- include the `run_id` in the final report.
+
+The snippet can be pasted into serious task prompts until the workflow has enough real examples to justify more automation.
+
+### Phase C: Semi-automated wrapper
+
+Later, add a helper such as `scripts/run_instrumented_task.sh` or a Pi command such as `/instrumented-task`. The wrapper should reduce repeated prompt boilerplate and make it harder to forget start/finish capture, while still preserving human/agent judgment about where a task begins, where validation ends, and which external IDs are safe and relevant to link.
+
+### Phase D: Full automation
+
+Full automation is the long-term endgame, not the immediate next task. Later, Control Room, Hermes, or the Pi launcher can:
+
+- create `run_id` automatically;
+- inject `run_id` into prompt/context;
+- capture Git before/after state;
+- link Langfuse trace/session IDs when known;
+- ask `/save-analysis` to store the same `run_id`.
+
+This should wait until several real tasks have been captured and reviewed with the Phase A/B workflow.
+
+### Current recommendation
+
+Use Phase A and Phase B now: prompt-controlled workflow plus script-backed capture. Do not build full automation until a few real tasks have been captured, reviewed, and shown to produce useful warehouse joins.
+
 ## Next steps
 
 - Add run envelope propagation in benchmark/Pi execution paths.
