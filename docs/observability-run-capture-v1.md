@@ -130,48 +130,48 @@ Script path:
 scripts/run_instrumented_pi_task.py
 ```
 
-Optional local repo shim:
+Repo shim:
 
 ```text
 bin/pi-task
 ```
 
-Purpose: Phase C now includes an automatic task-entrypoint helper. It is a thin orchestration layer around `scripts/instrumented_task.py`: `prepare` starts metadata-only capture immediately, obtains the generated `run_id`, and writes an instrumented prompt file for the next Pi task so future tasks do not rely on remembering a separate `begin` step.
+Preferred global shims, installed outside git when desired:
 
-Examples:
+```text
+~/.local/bin/pi-task
+~/.local/bin/ptask
+```
+
+Purpose: Phase C now includes an automatic task-entrypoint helper. It is a thin orchestration layer around `scripts/instrumented_task.py`: `pi-task "..."` starts metadata-only capture immediately, obtains the generated `run_id`, writes an instrumented prompt file outside the repository, and launches Pi with that file as the initial message using Pi's supported `@file` message argument. Future tasks no longer require remembering a separate `begin` step or a long observability prompt.
+
+Preferred daily workflow:
 
 ```bash
-python3 scripts/run_instrumented_pi_task.py prepare \
-  --task-name "Short safe task name" \
-  --task-type implementation \
-  --project coding-agent-benchmarks \
-  --agent Pi \
-  --repo-path /home/hermes/workspace/repos/coding-agent-benchmarks \
-  "Task body goes here."
+pi-task "Add basic warehouse views"
+# shorter equivalent, if ~/.local/bin/ptask is installed:
+ptask "Add basic warehouse views"
+```
 
-python3 scripts/run_instrumented_pi_task.py prepare \
-  --task-name "Short safe task name" \
-  --task-type validation \
-  --project coding-agent-benchmarks \
-  --agent Pi \
-  --repo-path /home/hermes/workspace/repos/coding-agent-benchmarks \
-  --prompt-file /path/to/task.md
+Finish and inspect the active run:
 
-python3 scripts/run_instrumented_pi_task.py active
+```bash
+pi-task finish --status success --result-summary "Short metadata-only result summary."
+pi-task active
+pi-task show
+pi-task clear
+```
 
-python3 scripts/run_instrumented_pi_task.py link \
-  --source-type langfuse_session \
-  --source-id safe-session-id \
-  --link-confidence manual
+Other examples:
 
-python3 scripts/run_instrumented_pi_task.py finish \
-  --status success \
-  --result-summary "Short metadata-only result summary."
-
+```bash
+pi-task --prompt-file /path/to/task.md --task-type validation
+pi-task start --repo-path /path/to/repo --project my-project "Task body goes here."
+pi-task link --source-type langfuse_session --source-id safe-session-id --link-confidence manual
 bin/pi-task active
 ```
 
-Supported commands: `prepare`, `active`, `link`, `finish`, and `clear`.
+Supported commands: default `start` via `pi-task "..."`, explicit `start`, `prepare`, `active`, `show`, `link`, `finish`, `clear`, and `raw`.
 
 How it differs from `instrumented_task.py`:
 
@@ -185,13 +185,24 @@ Generated prompt files are written outside the repository by default:
 ${XDG_STATE_HOME:-~/.local/state}/coding-agent-benchmarks/instrumented_prompts/<run_id>.md
 ```
 
-`prepare` prints only the `run_id`, generated prompt file path, and a safe next instruction. It does not print the generated prompt contents by default. The generated state prompt may contain the user task prompt, so callers must not include secrets or database URLs in task text. The helper refuses obvious database URL and secret assignment patterns before writing the prompt file.
+By default `start` / `prepare` prints only the `run_id`, generated prompt file path, and launch mode, then execs `pi @<generated-prompt-file>` from the target repo. Pi's help documents `@files` as initial-message inputs, so this is the v1 automatic launch path. If launch should be skipped, use `--no-launch`; the helper then prints one exact manual command:
 
-Active-state behavior matches the semi-automated wrapper: if another run is active, `prepare` refuses to start a new task unless `--force` is supplied. It never silently overwrites active state. `finish` reads the active run when `--run-id` is not supplied, delegates capture finish, and clears active state through `instrumented_task.py`.
+```bash
+pi-task start --no-launch "Task body goes here."
+# then run the printed: cd <repo> && pi '@<generated-prompt-file>'
+```
+
+The generated prompt contents are not printed by default. The generated state prompt may contain the user task prompt, so callers must not include secrets or database URLs in task text. The helper refuses obvious database URL and secret assignment patterns before writing the prompt file.
+
+Defaults are intentionally simple: repo path is the current Git root when the command is run inside a Git repo, otherwise this repository; project defaults to the repo directory name; agent defaults to `Pi`; task type defaults to `general`.
+
+Active-state behavior matches the semi-automated wrapper: if another run is active, `start` / `prepare` refuses to start a new task unless `--force` is supplied. It never silently overwrites active state. `finish` reads the active run when `--run-id` is not supplied, delegates capture finish, and clears active state through `instrumented_task.py`.
+
+Raw Pi access remains available. The real `pi` binary is not replaced. Use `pi` directly for casual or emergency uninstrumented work, or `pi-task raw ...` as an explicit escape hatch that execs raw Pi without starting capture. Existing `p` / `pi-vm-session` tmux workflows are left unchanged.
 
 Privacy boundaries are unchanged: metadata only. Do not store raw prompts, completions, transcripts, tool payloads, observation bodies, raw DB rows, raw Langfuse records, full diffs, DB URLs, env values, secrets, archive data, or credentials in Postgres or committed files. The prompt file is local XDG state, outside git tracking by default; it is not a warehouse record.
 
-Current limitations: v1 does not implement `--launch`. It deliberately does not fake Pi launch automation because no simple, reliable prompt-file launch mode is assumed here. Users should start Pi with the generated prompt file contents and let the embedded instructions finish/report the run. The helper does not auto-detect external IDs, modify raw Langfuse archives, install global shortcuts, modify shell configuration, or configure systemd/Hetzner.
+Current limitations: v1 does not auto-detect external IDs, auto-save Pi analysis IDs, infer task completion, alter the existing tmux `p` workflow, modify raw Langfuse archives, modify shell configuration, configure systemd/Hetzner, or clean up generated prompt files automatically.
 
 ## Git metadata captured
 
