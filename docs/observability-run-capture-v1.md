@@ -309,6 +309,10 @@ This should wait until several real tasks have been captured and reviewed with t
 
 Use Phase C now for serious tasks: prefer `scripts/run_instrumented_pi_task.py prepare` for automatic run start and generated task instructions; use `scripts/instrumented_task.py` directly when lower-level manual control is needed. Do not build deeper launcher/Control Room automation until several real tasks have been captured, reviewed, and shown to produce useful warehouse joins.
 
+## Native Pi instrumentation investigation
+
+See `docs/pi-native-instrumentation-investigation.md` for the docs-first review of Pi extensions, lifecycle hooks, and prompt templates. Current decision: keep `ptask` / `pi-task` as the default serious-task entrypoint now; later prototype a small metadata-only Pi extension that delegates to the existing capture scripts.
+
 ## Next steps
 
 - Add run envelope propagation in benchmark/Pi execution paths.
