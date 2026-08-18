@@ -5,18 +5,20 @@ coding-agent work into benchmark evidence and future replayable cases.
 
 Current project focus:
 
-- Capture OpenCode worker runs with Git before/after state.
+- Capture OpenCode worker runs with Git before/after state when OpenCode is explicitly being benchmarked or tracked.
 - Preserve enough metadata to join local task logs, OpenCode session IDs, Hermes
   orchestration context, and Langfuse traces without committing private data.
 - Export Langfuse data into a local archive for analysis.
 - Keep task inputs, evaluations, and historical design notes organized for later
   benchmark reconstruction.
 
+> **Development workflow:** this repository does not require or prefer OpenCode for normal implementation work. The active coding harness should work directly unless the user explicitly requests an OpenCode/OpenCodeBench benchmark, tracked capture, comparison, or replay.
+
 ## Current workflows
 
 ### 1. Capture tracked OpenCode work
 
-Use the wrapper when an OpenCode run should produce OpenCodeBench task logs:
+Use the wrapper only when an OpenCode run is intentionally part of a benchmark or capture and should produce OpenCodeBench task logs:
 
 ```sh
 /path/to/coding-agent-benchmarks/opencodebench-opencode \
@@ -25,7 +27,9 @@ Use the wrapper when an OpenCode run should produce OpenCodeBench task logs:
 ```
 
 Raw `opencode ...` invocations are untracked. Prefer `--dir` for delegated or
-cross-repository work so the captured Git repository is explicit.
+cross-repository benchmark work so the captured Git repository is explicit.
+This wrapper is benchmark tooling, not the default implementation path for work
+on this repository.
 
 Detailed wrapper behavior, metadata, repo detection, environment caveats, and
 captured file formats are documented in
@@ -100,12 +104,12 @@ explicitly ignored.
 - Hermes non-interactive capture design:
   [`docs/hermes-noninteractive-capture-design.md`](docs/hermes-noninteractive-capture-design.md)
 - Stage history and validations: `docs/stage-*.md`
-- Current model-routing notes:
+- Legacy OpenCode benchmark-routing compatibility note:
   [`docs/current-openbench-model-routing.md`](docs/current-openbench-model-routing.md)
 
 ## Scripts and entry points
 
-- `opencodebench-opencode` — tracked OpenCode wrapper.
+- `opencodebench-opencode` — tracked OpenCode wrapper for explicit benchmark/capture runs.
 - `capture-task-start.sh`, `capture-task-finish.sh` — task log capture helpers.
 - `opencode-bench.sh`, `hermes-bench.sh` — benchmark harness launchers.
 - `scripts/export_langfuse_archive.py` — read-only Langfuse archive exporter.
